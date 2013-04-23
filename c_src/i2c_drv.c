@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <linux/i2c.h>
+#include <linux/i2c-dev.h>
 #include <linux/types.h>
 #include <sys/ioctl.h>
 
@@ -31,13 +32,18 @@ typedef int  ErlDrvSSizeT;
 
 #define INT_EVENT(e) ((int)((long)(e)))
 
-#define CMD_OPEN       1
-#define CMD_CLOSE      2
-#define CMD_SLAVE      3
-#define CMD_TRANSFER   3
-#define CMD_RD_MODE    4
-#define CMD_RD_BPW     5
-#define CMD_RD_SPEED   6
+#define CMD_OPEN        1
+#define CMD_CLOSE       2
+#define CMD_SET_RETRIES 3
+#define CMD_SET_TIMEOUT 4
+#define CMD_SET_SLAVE   5
+#define CMD_SET_SLAVEF  6
+#define CMD_SET_TENBIT  7
+#define CMD_SET_PEC     8
+#define CMD_GET_FUNCS   9
+#define CMD_RDWR        10
+#define CMD_SMBUS       11
+
 
 static inline uint32_t get_uint32(uint8_t* ptr)
 {
@@ -153,7 +159,7 @@ static void emit_log(int level, char* file, int line, ...)
     }
 }
 
-static i2c_dev_t** find_dev(i2c_ctx_t* ctx, uint16_t bus, i2c_dev_t*** ppp)
+static i2c_dev_t* find_dev(i2c_ctx_t* ctx, uint16_t bus, i2c_dev_t*** ppp)
 {
     i2c_dev_t** pp = &ctx->first;
 
@@ -161,7 +167,7 @@ static i2c_dev_t** find_dev(i2c_ctx_t* ctx, uint16_t bus, i2c_dev_t*** ppp)
 	i2c_dev_t* p = *pp;
 	if ((p->bus == bus)) {
 	    if (ppp) *ppp = pp;
-	    return pp;
+	    return p;
 	}
 	pp = &p->next;
     }
@@ -274,7 +280,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 
 	if (len != 2) goto badarg;
 	bus = get_uint16(buf);
-	if (find_dev(ctx, bus) != NULL)
+	if (find_dev(ctx, bus, NULL) != NULL)
 	    goto ok; // already open
 	n = snprintf(path, sizeof(path), "/dev/i2c-%d", bus);
 	if (n >= sizeof(path)) goto badarg;
@@ -306,6 +312,159 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	goto ok;
     }
 
+    case CMD_SET_RETRIES: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long retries;
+	
+	if (len != 6) goto badarg;
+	bus = get_uint16(buf);
+	retries = get_uint32(buf);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, I2C_RETRIES, retries) < 0)
+	    goto error;
+	goto ok;
+    }
+
+    case CMD_SET_TIMEOUT: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long timeout;
+	
+	if (len != 6) goto badarg;
+	bus = get_uint16(buf);
+	timeout = (get_uint32(buf) / 10);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, I2C_TIMEOUT, timeout) < 0)
+	    goto error;
+	goto ok;
+    }
+
+    case CMD_SET_SLAVEF:
+    case CMD_SET_SLAVE: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long addr;
+	
+	if (len != 4) goto badarg;
+	bus = get_uint16(buf);
+	addr = get_uint16(buf);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, 
+		  (cmd = CMD_SET_SLAVEF) ? I2C_SLAVE_FORCE :
+		  I2C_SLAVE, addr) < 0) 
+	    goto error;
+	goto ok;
+    }
+
+    case CMD_SET_TENBIT: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long tenbit;
+	
+	if (len != 3) goto badarg;
+	bus = get_uint16(buf);
+	tenbit = get_uint8(buf);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, I2C_TENBIT, tenbit) < 0)
+	    goto error;
+	goto ok;
+    }
+
+    case CMD_SET_PEC: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long pec;
+	
+	if (len != 3) goto badarg;
+	bus = get_uint16(buf);
+	pec = get_uint8(buf);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, I2C_PEC, pec) < 0)
+	    goto error;
+	goto ok;
+    }
+
+    case CMD_GET_FUNCS: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	unsigned long funcs;
+	if (len != 2) goto badarg;
+	bus = get_uint16(buf);
+
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (ioctl(ptr->fd, I2C_FUNCS, &funcs) < 0)
+	    goto error;
+	return ctl_reply(sizeof(funcs), &funcs, sizeof(funcs), rbuf, rsize);
+    }
+
+    case CMD_RDWR: {
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	struct i2c_rdwr_ioctl_data iod;
+	struct i2c_msg msgs[I2C_RDRW_IOCTL_MAX_MSGS];
+	uint8_t rxbuf[1024];
+	uint8_t* rxptr;
+	size_t  rxlen;
+	uint32_t nmsgs = 0;
+	int i;
+
+	if (len < 6) goto badarg;
+	bus = get_uint16(buf);
+	nmsgs = get_uint32(buf+2);
+	buf += 6;
+	len -= 6;
+	
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	if (nmsgs > I2C_RDRW_IOCTL_MAX_MSGS)
+	    goto badarg;
+	rxlen = sizeof(rxbuf);
+	rxptr = rxbuf;
+	for (i = 0; i < (int)nmsgs; i++) {
+	    uint16_t dlen;
+	    if (len < 8) goto badarg;
+	    msgs[i].addr = get_uint16(buf);
+	    msgs[i].flags = get_uint16(buf+2);
+	    msgs[i].len   = get_uint16(buf+4);
+	    dlen = get_uint16(buf+6);  // bytes of write that follows
+	    buf += 8;
+	    len -= 8;
+	    if (msgs[i].flags & I2C_M_RD) {
+		if (rxlen <  msgs[i].len)
+		    goto badarg;  // rxbuf to small (log this error)
+		msgs[i].buf = rxptr;
+		rxptr += msgs[i].len;
+		rxlen -= msgs[i].len;
+	    }
+	    else {
+		if (msgs[i].len > dlen)
+		    msgs[i].len = dlen;
+		msgs[i].buf = buf;
+	    }
+	}
+	iod.msgs  = msgs;
+	iod.nmsgs = nmsgs;
+	if (ioctl(ptr->fd, I2C_RDWR, &iod) < 0)
+	    goto error;
+	return ctl_reply(3, rxbuf, sizeof(rxbuf)-rxlen, rbuf, rsize);
+    }
+
+    case CMD_SMBUS: {
+	// not yet ...
+	goto badarg;
+    }
 
     default:
 	goto badarg;
@@ -313,8 +472,12 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 
 ok:
     return ctl_reply(0, NULL, 0, rbuf, rsize);
+not_found:
+    errno = ENOENT;
+    goto error;
 badarg:
     errno = EINVAL;
+    goto error;
 error:
     {
         char* err_str = erl_errno_id(errno);
