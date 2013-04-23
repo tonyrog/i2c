@@ -1,0 +1,8 @@
+{application, i2c,
+ [{description, "I2C device controller"},
+  {vsn, git},
+  {mod, {i2c_app, []}},
+  {registered, [i2c_srv,i2c_port]},
+  {env, []},
+  {applications,[kernel,stdlib]}
+  ]}.
