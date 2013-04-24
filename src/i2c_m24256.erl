@@ -15,14 +15,14 @@
 -define(M24256_CHIP_ADDR, 16#00).
 -endif.
 
--define(M24256_TYPE_ID,   16#A0).
+-define(M24256_TYPE_ID,   16#50).
 -define(M24256_BYTE_SIZE, (32*1024)).
 -define(M24256_PAGE_SIZE, 64).
 -define(M24256_MAX_BIT_RATE, 400000).
 -define(M24256_WRITE_DELAY,  10000).   %% 10ms
 
 slave_addr(Addr) ->
-    ?M24256_TYPE_ID + ((Addr band 2#111) bsl 1).
+    ?M24256_TYPE_ID + (Addr band 2#111).
 
 read(Bus, Addr, Size) when is_integer(Addr), Addr >= 0,
 			   is_integer(Size), Size >= 0, Size =< 16 ->
