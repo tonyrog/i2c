@@ -18,14 +18,16 @@
 -define(is_uint16(T), (((T) band (bnot 16#ffff)) =:=  0)).
 -define(is_uint32(T), (((T) band (bnot 16#ffffffff)) =:=  0)).
 
--record(i2c_transfer,
+-type i2c_flag() ::
+	ten | rd | nostart | rev_dir_addr |
+	ignore_nak | no_rd_ack | recv_len.
+
+-record(i2c_msg,
 	{
-	  tx_buf :: binary(),
-	  len    :: uint32(),
-	  speed_hz :: uint32(),
-	  delay_usecs :: uint16(),
-	  bits_per_word :: uint8(),
-	  cs = 0 :: uint8()
+	  addr   :: uint16(),
+	  flags  :: [i2c_flag()],
+	  len    :: uint16(),
+	  data   :: binary()
 	}).
 
 -endif.

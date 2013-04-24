@@ -435,7 +435,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	for (i = 0; i < (int)nmsgs; i++) {
 	    uint16_t dlen;
 	    if (len < 8) goto badarg;
-	    msgs[i].addr = get_uint16(buf);
+	    msgs[i].addr  = get_uint16(buf);
 	    msgs[i].flags = get_uint16(buf+2);
 	    msgs[i].len   = get_uint16(buf+4);
 	    dlen = get_uint16(buf+6);  // bytes of write that follows

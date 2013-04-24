@@ -156,6 +156,9 @@ get_funcs(Bus) when ?is_uint16(Bus) ->
 	    Error
     end.
 
+-spec rdwr(Bus::uint16(), RdWr::[#i2c_msg{}]) ->
+		  {ok, [binary()]} | {error, posix()}.
+
 rdwr(Bus, RdWr) when ?is_uint16(Bus),
 		     is_list(RdWr) ->
     {N,Data} = encode_rdwr(RdWr, 0, []),
@@ -205,7 +208,8 @@ decode_rdwr([], _Bin) ->
     [].
 
 
-encode_rdwr([{Addr,Fs,Len,Data} | RdWr], I, Acc) ->    
+encode_rdwr([#i2c_msg{addr=Addr,flags=Fs,len=Len,data=Data} | RdWr],
+	    I, Acc) ->
     Flags = encode_flags(Fs,0),
     DataLen = byte_size(Data),
     encode_rdwr(RdWr,
