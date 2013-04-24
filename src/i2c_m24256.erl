@@ -33,5 +33,6 @@ read(Bus, Addr, Size) when is_integer(Addr), Addr >= 0,
 write(Bus, Addr, Data) when is_binary(Data), is_integer(Addr), Addr >= 0 ->
     A = slave_addr(?M24256_CHIP_ADDR),
     Size = byte_size(Data),
-    i2c:rdwr(Bus, [#i2c_msg{addr=A,flags=[],len=2,data=(<<Addr:16>>)},
-		   #i2c_msg{addr=A,flags=[],len=Size,data=(Data)}]).
+    i2c:rdwr(Bus, [#i2c_msg{addr=A,flags=[],len=2+Size,
+			    data=(<<Addr:16,Data/binary>>)}]).
+
