@@ -158,8 +158,7 @@ get_funcs(Bus) when ?is_uint16(Bus) ->
 
 rdwr(Bus, RdWr) when ?is_uint16(Bus),
 		     is_list(RdWr) ->
-    {N,List} = encode_rdwr(RdWr, 0, []),
-    Data = list_to_binary(List),
+    {N,Data} = encode_rdwr(RdWr, 0, []),
     case call(?I2C_PORT, ?CMD_RDWR, <<Bus:16, N:32, Data/binary>>) of
 	{ok,Bin} ->
 	    {ok, decode_rdwr(RdWr, Bin)};
