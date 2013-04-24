@@ -25,7 +25,7 @@ slave_addr(Addr) ->
     ?M24256_TYPE_ID + (Addr band 2#111).
 
 read(Bus, Addr, Size) when is_integer(Addr), Addr >= 0,
-			   is_integer(Size), Size >= 0, Size =< 16 ->
+			   is_integer(Size), Size >= 0, Size =< 16#ffff ->
     A = slave_addr(?M24256_CHIP_ADDR),
     i2c:rdwr(Bus, [#i2c_msg {addr=A,flags=[],len=2,data=(<<Addr:16>>)},
 		   #i2c_msg {addr=A,flags=[rd],len=Size,data=(<<>>)}]).

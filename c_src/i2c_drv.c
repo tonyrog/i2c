@@ -430,7 +430,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	    goto not_found;
 	if (nmsgs > I2C_RDRW_IOCTL_MAX_MSGS)
 	    goto badarg;
-	rxlen = sizeof(rxbuf);
+	rxlen = 0;
 	rxptr = rxbuf;
 	for (i = 0; i < (int)nmsgs; i++) {
 	    uint16_t dlen;
@@ -441,24 +441,26 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	    dlen = get_uint16(buf+6);  // bytes of write that follows
 	    buf += 8;
 	    len -= 8;
-	    if (msgs[i].flags & I2C_M_RD) {
-		if (rxlen <  msgs[i].len)
-		    goto badarg;  // rxbuf to small (log this error)
+	    if (msgs[i].flags & I2C_M_RD) {  // READ
+		if (msgs[i].len+rxlen >= sizeof(rxbuf))
+		    goto badarg;  // rxbuf to small (fixme log this error)
 		msgs[i].buf = rxptr;
 		rxptr += msgs[i].len;
-		rxlen -= msgs[i].len;
+		rxlen += msgs[i].len;
 	    }
-	    else {
+	    else {  // WRITE
 		if (msgs[i].len > dlen)
-		    msgs[i].len = dlen;
+		    msgs[i].len = dlen; // truncate
 		msgs[i].buf = buf;
+		buf += dlen;
+		len -= dlen;
 	    }
 	}
 	iod.msgs  = msgs;
 	iod.nmsgs = nmsgs;
 	if (ioctl(ptr->fd, I2C_RDWR, &iod) < 0)
 	    goto error;
-	return ctl_reply(3, rxbuf, sizeof(rxbuf)-rxlen, rbuf, rsize);
+	return ctl_reply(3, rxbuf, rxlen, rbuf, rsize);
     }
 
     case CMD_SMBUS: {
