@@ -196,8 +196,8 @@ smbus_size(block_proc_call) -> ?I2C_SMBUS_BLOCK_PROC_CALL;
 smbus_size(i2c_block_data) -> ?I2C_SMBUS_I2C_BLOCK_DATA.
     
 
-decode_rdwr([{_Addr,Fs,Len,_Data} | RdWr], Bin) ->
-    case lists:member(rd, Fs) of
+decode_rdwr([#i2c_msg{flags=Fs,len=Len} | RdWr], Bin) ->
+    case lists:member(rd,Fs) of
 	true ->
 	    <<Read:Len/binary,Bin1/binary>> = Bin,
 	    [Read | decode_rdwr(RdWr, Bin1)];
