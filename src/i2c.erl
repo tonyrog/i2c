@@ -35,10 +35,17 @@
 -export([rdwr/2]).
 -export([smbus/2]).
 
--export([start/0,start_link/0]).
+%% gen_server api
+-export([start/0,
+	 start_link/0]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+%% gen_server callbacks
+-export([init/1, 
+	 handle_call/3, 
+	 handle_cast/2, 
+	 handle_info/2,
+	 terminate/2, 
+	 code_change/3]).
 
 -include("../include/i2c.hrl").
 
@@ -90,11 +97,28 @@
 -define(I2C_SMBUS_I2C_BLOCK_DATA,   8).
 
 
+%% @doc
+%% Open i2c bus.
+%% @end
+-spec open(Bus::uint16()) ->
+			 ok | {error, Reason::posix()}.
+
 open(Bus) when ?is_uint16(Bus) ->
     call(?I2C_PORT, ?CMD_OPEN, <<Bus:16>>).
 
+%% @doc
+%% Close i2c bus.
+%% @end
+-spec close(Bus::uint16()) ->
+			 ok | {error, Reason::posix()}.
 close(Bus) when ?is_uint16(Bus) ->
     call(?I2C_PORT, ?CMD_CLOSE, <<Bus:16>>).
+
+%% @doc
+%% Set i2c operation number of retries.
+%% @end
+-spec set_retries(Bus::uint16(), Retries::uint32()) ->
+			 ok | {error, Reason::posix()}.
 
 set_retries(Bus, Retries) when ?is_uint16(Bus), 
 			       ?is_uint32(Retries) ->
@@ -148,6 +172,12 @@ set_pec(Bus, Enable) when ?is_uint16(Bus),
     E = if Enable -> 1; true -> 0 end,
     call(?I2C_PORT, ?CMD_SET_PEC, <<Bus:16, E:8>>).
 
+%% @doc
+%% Get value for i2c functions.
+%% @end
+-spec get_funcs(Bus::uint16()) ->
+		       ok | {error, Reason::posix()}.
+
 get_funcs(Bus) when ?is_uint16(Bus) ->
     case call(?I2C_PORT, ?CMD_GET_FUNCS, <<Bus:16>>) of
 	{ok,Value} ->
@@ -156,6 +186,9 @@ get_funcs(Bus) when ?is_uint16(Bus) ->
 	    Error
     end.
 
+%% @doc
+%% Read/Write command.
+%% @end
 -spec rdwr(Bus::uint16(), RdWr::[#i2c_msg{}]) ->
 		  {ok, [binary()]} | {error, posix()}.
 
@@ -169,6 +202,8 @@ rdwr(Bus, RdWr) when ?is_uint16(Bus),
 	    Error
     end.
 
+%% @doc
+%% @end
 smbus(Bus, {read,Command,Size}) when ?is_uint16(Bus),
 				    ?is_uint8(Command),
 				    is_atom(Size) ->
@@ -185,6 +220,9 @@ smbus(Bus, {write,Command,Size,Data}) when ?is_uint16(Bus),
 	 << Bus:16, ?I2C_SMBUS_WRITE, Command:8, Size32:32,
 	    Len:32, Data/binary >>).
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 smbus_size(quick) -> ?I2C_SMBUS_QUICK;
 smbus_size(byte) -> ?I2C_SMBUS_BYTE;
 smbus_size(byte_data) -> ?I2C_SMBUS_BYTE_DATA;
@@ -273,18 +311,23 @@ get_value(Flag,Name,Value) ->
        true -> []
     end.
 
-%%
-%% i2c gen_server just keep the port going
-%%	     
+%%--------------------------------------------------------------------
+%% @doc
+%% i2c server just used to keep the port going.
+%% @end
+%%--------------------------------------------------------------------
+-spec start_link() -> ok.
 
 start_link() ->
     gen_server:start_link({local, ?I2C_SRV}, ?MODULE, [], []).
 
+%% @private
 start() ->
     application:start(i2c).
 
 -record(state, { port} ).
 
+%% @private
 init([]) ->
     Driver = "i2c_drv", 
     ok = erl_ddll:load_driver(code:priv_dir(i2c), Driver),
@@ -292,17 +335,22 @@ init([]) ->
     true = erlang:register(?I2C_PORT, Port),
     {ok, #state{ port=Port }}.
 
+%% @private
 handle_call(_Request, _From, State) ->
     {reply, {error,bad_call}, State}.
 
+%% @private
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% @private
 handle_info(_Info, State) ->
     {noreply, State}.
 
+%% @private
 terminate(_Reason, _State) ->
     ok.
 
+%% @private
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
