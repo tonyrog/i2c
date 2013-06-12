@@ -43,7 +43,7 @@ typedef int  ErlDrvSSizeT;
 #define CMD_GET_FUNCS   9
 #define CMD_RDWR        10
 #define CMD_SMBUS       11
-
+#define CMD_DEBUG       12
 
 static inline uint32_t get_uint32(uint8_t* ptr)
 {
@@ -157,12 +157,14 @@ static void emit_log(int level, char* file, int line, ...)
 
     if ((level == DLOG_EMERGENCY) ||
 	((debug_level >= 0) && (level <= debug_level))) {
+	int save_errno = errno;
 	va_start(ap, line);
 	fmt = va_arg(ap, char*);
 	fprintf(stderr, "%s:%d: ", file, line); 
 	vfprintf(stderr, fmt, ap);
 	fprintf(stderr, "\r\n");
 	va_end(ap);
+	errno = save_errno;
     }
 }
 
@@ -471,8 +473,15 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
     }
 
     case CMD_SMBUS: {
-	// not yet ...
+	WARNINGF("SMBUS not yet implmented");
 	goto badarg;
+    }
+
+    case CMD_DEBUG: {
+	if (len != 4)
+	    goto badarg;
+	debug_level = get_int32(buf);
+	goto ok;
     }
 
     default:
