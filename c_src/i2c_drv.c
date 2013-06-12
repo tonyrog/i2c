@@ -51,6 +51,13 @@ static inline uint32_t get_uint32(uint8_t* ptr)
     return value;
 }
 
+
+static inline int32_t get_int32(uint8_t* ptr)
+{
+    uint32_t value = (ptr[0]<<24) | (ptr[1]<<16) | (ptr[2]<<8) | (ptr[3]<<0);
+    return (int32_t) value;
+}
+
 static inline uint16_t get_uint16(uint8_t* ptr)
 {
     uint16_t value = (ptr[0]<<8) | (ptr[1]<<0);

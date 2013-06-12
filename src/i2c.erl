@@ -34,6 +34,7 @@
 -export([get_funcs/1]).
 -export([rdwr/2]).
 -export([smbus/2]).
+-export([debug/1]).
 
 -export([start/0,start_link/0]).
 
@@ -56,6 +57,18 @@
 -define(CMD_GET_FUNCS,   9).
 -define(CMD_RDWR,        10).
 -define(CMD_SMBUS,       11).
+-define(CMD_DEBUG,       12).
+
+-define(DLOG_DEBUG,     7).
+-define(DLOG_INFO,      6).
+-define(DLOG_NOTICE,    5).
+-define(DLOG_WARNING,   4).
+-define(DLOG_ERROR,     3).
+-define(DLOG_CRITICAL,  2).
+-define(DLOG_ALERT,     1).
+-define(DLOG_EMERGENCY, 0).
+-define(DLOG_NONE,     -1).
+
 
 -define(I2C_FUNC_I2C,			16#00000001).
 -define(I2C_FUNC_10BIT_ADDR,		16#00000002).
@@ -194,6 +207,23 @@ smbus_size(block_data) -> ?I2C_SMBUS_BLOCK_DATA;
 smbus_size(i2c_block_broken) -> ?I2C_SMBUS_I2C_BLOCK_BROKEN;
 smbus_size(block_proc_call) -> ?I2C_SMBUS_BLOCK_PROC_CALL;
 smbus_size(i2c_block_data) -> ?I2C_SMBUS_I2C_BLOCK_DATA.
+
+debug(Level) when is_atom(Level) ->
+    L = level(Level),
+    call(?I2C_PORT, ?CMD_DEBUG, <<L:32>>).
+
+%% convert symbolic to numeric level
+level(true)  -> ?DLOG_DEBUG;
+level(false) -> ?DLOG_NONE;
+level(debug) -> ?DLOG_DEBUG;
+level(info)  -> ?DLOG_INFO;
+level(notice) -> ?DLOG_NOTICE;
+level(warning) -> ?DLOG_WARNING;
+level(error) -> ?DLOG_ERROR;
+level(critical) -> ?DLOG_CRITICAL;
+level(alert) -> ?DLOG_ALERT;
+level(emergency) -> ?DLOG_EMERGENCY;
+level(none) -> ?DLOG_NONE.
     
 
 decode_rdwr([#i2c_msg{flags=Fs,len=Len} | RdWr], Bin) ->
