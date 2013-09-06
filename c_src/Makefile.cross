@@ -1,0 +1,27 @@
+#
+# Make the i2c_drv
+# usage: TARGET=arm-none-linux-gnueabi make -f Makefile.cross
+#
+
+OSNAME := $(shell uname -s)
+MACHINE := $(shell uname -m)
+ERLDIR	:= $(shell erl -noshell -eval "io:format([126,115,126,110],[code:root_dir()])" -s erlang halt)
+ERL_C_INCLUDE_DIR := $(ERLDIR)/usr/include
+CC = $(TARGET)-gcc
+LD = $(TARGET)-ld
+PRIVDIR=../priv
+DTHREAD=../../dthread
+
+OBJS = i2c_drv.o
+
+LDFLAGS = -shared -fpic -lutil
+
+all : $(PRIVDIR)/i2c_drv.so
+
+override CFLAGS += -Wall -Wextra -Wswitch-default -Wswitch-enum -I$(ERL_C_INCLUDE_DIR) -I $(DTHREAD)/include -DDLOG_DEFAULT=DLOG_NONE
+
+$(PRIVDIR)/i2c_drv.so : $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+lean:
+	$(RM) -f $(PRIVDIR)/i2c_drv.so $(OBJS)

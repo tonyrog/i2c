@@ -290,7 +290,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	if (find_dev(ctx, bus, NULL) != NULL)
 	    goto ok; // already open
 	n = snprintf(path, sizeof(path), "/dev/i2c-%d", bus);
-	if (n >= sizeof(path)) goto badarg;
+	if (n >= (int)sizeof(path)) goto badarg;
 	if ((fd = open(path, O_RDWR, 0)) < 0)
 	    goto error;
 	if ((ptr = driver_alloc(sizeof(i2c_dev_t))) == NULL) {
