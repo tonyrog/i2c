@@ -14,7 +14,7 @@ DTHREAD=../../dthread
 
 OBJS = i2c_drv.o
 
-LDFLAGS = -shared -fpic -lutil
+LDFLAGS = -shared -fpic
 
 all : $(PRIVDIR)/i2c_drv.so
 

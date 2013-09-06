@@ -242,9 +242,7 @@ smbus_read(Bus, Command, Size) ->
     smbus(Bus, ?I2C_SMBUS_READ, Command, Size, <<>>).
 
 smbus_write(Bus, Command, Size, Data) ->
-    Size = byte_size(Data),
     smbus(Bus, ?I2C_SMBUS_WRITE, Command, Size, Data).
-
 
 smbus_read_byte(Bus) ->
     case smbus_read(Bus,0,?I2C_SMBUS_BYTE) of
