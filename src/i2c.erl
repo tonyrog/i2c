@@ -33,7 +33,21 @@
 -export([set_pec/2]).
 -export([get_funcs/1]).
 -export([rdwr/2]).
--export([smbus/2]).
+-export([smbus/5,smbus_read/3,smbus_write/4]).
+-export([smbus_read_byte/1,
+	 smbus_read_byte_data/2,
+	 smbus_read_word_data/2,
+	 smbus_read_block_data/2,
+	 smbus_write_quick/2,
+	 smbus_write_byte/2,
+	 smbus_write_byte_data/3,
+	 smbus_write_word_data/3,
+	 smbus_write_block_data/3,
+	 smbus_process_call/3,
+	 smbus_read_i2c_block_data/3,
+	 smbus_write_i2c_block_data/3,
+	 smbus_block_process_call/3]).
+-export([debug/1]).
 
 %% gen_server api
 -export([start/0,
@@ -63,6 +77,18 @@
 -define(CMD_GET_FUNCS,   9).
 -define(CMD_RDWR,        10).
 -define(CMD_SMBUS,       11).
+-define(CMD_DEBUG,       12).
+
+-define(DLOG_DEBUG,     7).
+-define(DLOG_INFO,      6).
+-define(DLOG_NOTICE,    5).
+-define(DLOG_WARNING,   4).
+-define(DLOG_ERROR,     3).
+-define(DLOG_CRITICAL,  2).
+-define(DLOG_ALERT,     1).
+-define(DLOG_EMERGENCY, 0).
+-define(DLOG_NONE,     -1).
+
 
 -define(I2C_FUNC_I2C,			16#00000001).
 -define(I2C_FUNC_10BIT_ADDR,		16#00000002).
@@ -202,36 +228,137 @@ rdwr(Bus, RdWr) when ?is_uint16(Bus),
 	    Error
     end.
 
+
+
 %% @doc
+%%    SMbus read/write command
 %% @end
-smbus(Bus, {read,Command,Size}) when ?is_uint16(Bus),
-				    ?is_uint8(Command),
-				    is_atom(Size) ->
-    Size32 = smbus_size(Size),
-    call(?I2C_PORT, ?CMD_SMBUS,
-	 <<Bus:16, ?I2C_SMBUS_READ, Command:8, Size32:32>>);
-smbus(Bus, {write,Command,Size,Data}) when ?is_uint16(Bus),
-					  ?is_uint8(Command),
-					  is_atom(Size),
-					  is_binary(Data) ->
-    Size32 = smbus_size(Size),
-    Len = byte_size(Data),
-    call(?I2C_PORT, ?CMD_SMBUS,
-	 << Bus:16, ?I2C_SMBUS_WRITE, Command:8, Size32:32,
-	    Len:32, Data/binary >>).
+
+smbus(Bus, ReadWrite, Command, Size, Data) ->
+    call(?I2C_PORT, ?CMD_SMBUS, 
+	 <<Bus:16, ReadWrite, Command:8, Size:32, Data/binary>>).
+
+smbus_read(Bus, Command, Size) ->
+    smbus(Bus, ?I2C_SMBUS_READ, Command, Size, <<>>).
+
+smbus_write(Bus, Command, Size, Data) ->
+    Size = byte_size(Data),
+    smbus(Bus, ?I2C_SMBUS_WRITE, Command, Size, Data).
+
+
+smbus_read_byte(Bus) ->
+    case smbus_read(Bus,0,?I2C_SMBUS_BYTE) of
+	{ok,<<Value:8,_/binary>>} ->
+	    {ok,Value};
+	Error -> Error
+    end.
+	
+smbus_read_byte_data(Bus, Command) ->
+    case smbus_read(Bus, Command,?I2C_SMBUS_BYTE_DATA) of
+	{ok,<<Value:8,_/binary>>} ->
+	    {ok,Value};
+	Error -> Error
+    end.
+
+smbus_read_word_data(Bus, Command) ->
+    case smbus_read(Bus,Command,?I2C_SMBUS_WORD_DATA) of
+	{ok,<<Value:16/native,_/binary>>} ->
+	    {ok,Value};
+	Error ->
+	    Error
+    end.
+
+smbus_read_block_data(Bus, Command) ->
+    case smbus_read(Bus,Command,?I2C_SMBUS_BLOCK_DATA) of
+	{ok,<<N,Return:N/binary,_/binary>>} ->
+	    {ok,Return};
+	Error -> Error
+    end.
+
+smbus_write_quick(Bus, Value) 
+  when is_integer(Value) ->
+    smbus(Bus,Value,0,?I2C_SMBUS_QUICK,
+	  <<>>).
+
+smbus_write_byte(Bus, Value)
+  when is_integer(Value) ->
+    smbus_write(Bus,Value,?I2C_SMBUS_BYTE,
+		<<>>).
+
+smbus_write_byte_data(Bus, Command, Value) 
+  when is_integer(Command), is_integer(Value) ->
+    smbus_write(Bus,Command,?I2C_SMBUS_BYTE_DATA,
+		<<Value>>).
+
+smbus_write_word_data(Bus, Command, Value) 
+  when is_integer(Command),is_integer(Value) ->
+    smbus_write(Bus, Command,?I2C_SMBUS_WORD_DATA,
+	  <<Value:16/native>>).
+
+smbus_write_block_data(Bus, Command, Data)
+  when is_integer(Command), is_binary(Data) ->
+    N = max(byte_size(Data),32),
+    smbus_write(Bus,Command,?I2C_SMBUS_BLOCK_DATA,<<N,Data:N/binary>>).
+
+smbus_process_call(Bus, Command, Value) ->
+    case smbus(Bus,?I2C_SMBUS_WRITE,Command,
+	       ?I2C_SMBUS_PROC_CALL,<<Value:16/native>>) of
+	{ok,<<Return:16/native>>} ->
+	    {ok,Return};
+	Error -> Error
+    end.
+
+smbus_read_i2c_block_data(Bus, Command, Length)
+    when is_integer(Command), is_integer(Length), Length >= 0 ->
+    N = max(Length, 32),
+    Data = <<N>>,
+    Size = if N =:= 32 -> 
+		   ?I2C_SMBUS_I2C_BLOCK_BROKEN;
+	      true ->
+		   ?I2C_SMBUS_I2C_BLOCK_DATA
+	   end,
+    case smbus(Bus,?I2C_SMBUS_READ,Command,Size,Data) of
+	{ok,<<N,Return:N/binary,_/binary>>} ->
+	    {ok,Return};
+	Error -> Error
+    end.
+
+smbus_write_i2c_block_data(Bus, Command, Data) 
+  when is_integer(Command), is_binary(Data) ->
+    N = max(byte_size(Data),32),
+    smbus(Bus,?I2C_SMBUS_WRITE,Command,
+	  ?I2C_SMBUS_I2C_BLOCK_BROKEN,<<N,Data:N/binary>>).
+
+smbus_block_process_call(Bus, Command, Values) ->
+    N = max(byte_size(Values),32),
+    Data = <<N,Values:N/binary>>,
+    case smbus(Bus,?I2C_SMBUS_WRITE,Command,
+	       ?I2C_SMBUS_BLOCK_PROC_CALL,Data) of
+	{ok,<<M,Return:M/binary,_/binary>>} ->
+	    {ok,Return};
+	Error -> Error
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-smbus_size(quick) -> ?I2C_SMBUS_QUICK;
-smbus_size(byte) -> ?I2C_SMBUS_BYTE;
-smbus_size(byte_data) -> ?I2C_SMBUS_BYTE_DATA;
-smbus_size(word_data) -> ?I2C_SMBUS_WORD_DATA;
-smbus_size(proc_call) -> ?I2C_SMBUS_PROC_CALL;
-smbus_size(block_data) -> ?I2C_SMBUS_BLOCK_DATA;
-smbus_size(i2c_block_broken) -> ?I2C_SMBUS_I2C_BLOCK_BROKEN;
-smbus_size(block_proc_call) -> ?I2C_SMBUS_BLOCK_PROC_CALL;
-smbus_size(i2c_block_data) -> ?I2C_SMBUS_I2C_BLOCK_DATA.
+
+debug(Level) when is_atom(Level) ->
+    L = level(Level),
+    call(?I2C_PORT, ?CMD_DEBUG, <<L:32>>).
+
+%% convert symbolic to numeric level
+level(true)  -> ?DLOG_DEBUG;
+level(false) -> ?DLOG_NONE;
+level(debug) -> ?DLOG_DEBUG;
+level(info)  -> ?DLOG_INFO;
+level(notice) -> ?DLOG_NOTICE;
+level(warning) -> ?DLOG_WARNING;
+level(error) -> ?DLOG_ERROR;
+level(critical) -> ?DLOG_CRITICAL;
+level(alert) -> ?DLOG_ALERT;
+level(emergency) -> ?DLOG_EMERGENCY;
+level(none) -> ?DLOG_NONE.
     
 
 decode_rdwr([#i2c_msg{flags=Fs,len=Len} | RdWr], Bin) ->

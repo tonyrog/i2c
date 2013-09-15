@@ -470,9 +470,30 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	return ctl_reply(3, rxbuf, rxlen, rbuf, rsize);
     }
 
-    case CMD_SMBUS: {
-	WARNINGF("SMBUS not yet implmented");
-	goto badarg;
+    case CMD_SMBUS: {  // <<Bus:16,ReadWrite:8,Command:8,Size:32,Data/binary>>
+	i2c_dev_t* ptr;
+	uint16_t bus;
+	union i2c_smbus_data data;
+	struct i2c_smbus_ioctl_data args;
+	
+	if (len < 8) goto badarg;
+	bus   = get_uint16(buf);
+	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
+	    goto not_found;
+	args.read_write = get_uint8(buf+2);
+	args.command    = get_uint8(buf+3);
+	args.size       = get_uint32(buf+4);
+	args.data       = &data;
+	buf += 8;
+	len -= 8;
+	memset(data.block, 0, sizeof(data));
+	if (len > sizeof(data))
+	    memcpy(data.block, buf, sizeof(data));
+	else if (len > 0)
+	    memcpy(data.block, buf, len);
+	if (ioctl(ptr->fd, I2C_SMBUS, &args) < 0)
+	    goto error;
+	return ctl_reply(3, data.block, sizeof(data), rbuf, rsize);
     }
 
     case CMD_DEBUG: {
