@@ -51,6 +51,11 @@ static inline uint32_t get_uint32(uint8_t* ptr)
     return value;
 }
 
+static inline int32_t get_int32(uint8_t* ptr)
+{
+    return (int32_t) get_uint32(ptr);
+}
+
 static inline uint16_t get_uint16(uint8_t* ptr)
 {
     uint16_t value = (ptr[0]<<8) | (ptr[1]<<0);
@@ -321,7 +326,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	
 	if (len != 6) goto badarg;
 	bus = get_uint16(buf);
-	retries = get_uint32(buf);
+	retries = get_uint32(buf+2);
 
 	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
 	    goto not_found;
@@ -337,7 +342,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	
 	if (len != 6) goto badarg;
 	bus = get_uint16(buf);
-	timeout = (get_uint32(buf) / 10);
+	timeout = (get_uint32(buf+2) / 10);
 
 	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
 	    goto not_found;
@@ -354,7 +359,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	
 	if (len != 4) goto badarg;
 	bus = get_uint16(buf);
-	addr = get_uint16(buf);
+	addr = get_uint16(buf+2);
 
 	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
 	    goto not_found;
@@ -372,7 +377,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	
 	if (len != 3) goto badarg;
 	bus = get_uint16(buf);
-	tenbit = get_uint8(buf);
+	tenbit = get_uint8(buf+2);
 
 	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
 	    goto not_found;
@@ -388,7 +393,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 	
 	if (len != 3) goto badarg;
 	bus = get_uint16(buf);
-	pec = get_uint8(buf);
+	pec = get_uint8(buf+2);
 
 	if ((ptr = find_dev(ctx, bus, NULL)) == NULL)
 	    goto not_found;
