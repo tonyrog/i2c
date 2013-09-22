@@ -9,19 +9,30 @@ ERLDIR	:= $(shell erl -noshell -eval "io:format([126,115,126,110],[code:root_dir
 ERL_C_INCLUDE_DIR := $(ERLDIR)/usr/include
 CC = $(TARGET)-gcc
 LD = $(TARGET)-ld
-PRIVDIR=../priv
+PRIVDIR=../priv/$(TARGET)
+OBJDIR=$(TARGET)
 DTHREAD=../../dthread
 
-OBJS = i2c_drv.o
+OBJS = \
+     $(OBJDIR)/i2c_drv.o
 
 LDFLAGS = -shared -fpic
 
-all : $(PRIVDIR)/i2c_drv.so
+all : $(OBJDIR) $(PRIVDIR) $(PRIVDIR)/i2c_drv.so
 
 override CFLAGS += -Wall -Wextra -Wswitch-default -Wswitch-enum -I$(ERL_C_INCLUDE_DIR) -I $(DTHREAD)/include -DDLOG_DEFAULT=DLOG_NONE
 
+$(OBJDIR):
+	@mkdir -p $(OBJDIR)
+
+$(PRIVDIR):
+	@mkdir -p $(PRIVDIR)
+
 $(PRIVDIR)/i2c_drv.so : $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^
+
+$(OBJDIR)/%.o: %.c
+	$(CC) -c -o $@ $(CFLAGS) $<
 
 lean:
 	$(RM) -f $(PRIVDIR)/i2c_drv.so $(OBJS)
