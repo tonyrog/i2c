@@ -261,7 +261,7 @@ static void i2c_drv_stop(ErlDrvData d)
     i2c_dev_t* ptr = ctx->first;
     while(ptr) {
 	i2c_dev_t* ptr_n = ptr->next;
-	driver_select(ctx->port, (ErlDrvEvent) ptr->fd, ERL_DRV_USE, 0);
+	driver_select(ctx->port, (ErlDrvEvent)((long)ptr->fd), ERL_DRV_USE, 0);
 	driver_free(ptr);
 	ptr = ptr_n;
     }
@@ -313,7 +313,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 
 	if ((ptr = find_dev(ctx, bus, &pp)) == NULL)
 	    goto ok;
-	driver_select(ctx->port, (ErlDrvEvent)ptr->fd, ERL_DRV_USE, 0);
+	driver_select(ctx->port, (ErlDrvEvent)((long)ptr->fd), ERL_DRV_USE, 0);
 	*pp = ptr->next; // unlink
 	driver_free(ptr);
 	goto ok;
