@@ -27,7 +27,6 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    io:format("i2c_app: start_link\n", []),
     i2c_sup:start_link().
 
 stop(_State) ->

@@ -33,7 +33,6 @@
 %% ===================================================================
 
 start_link() ->
-    io:format("i2c_sup: start_link\n", []),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% ===================================================================
@@ -42,6 +41,5 @@ start_link() ->
 
 init([]) ->
     I2cServer = ?CHILD(i2c, worker),
-    io:format("i2c_sup: init [~p]\n", [I2cServer]),
     {ok, { {one_for_one, 5, 10}, [I2cServer]} }.
 
