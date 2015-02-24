@@ -46,6 +46,15 @@
 -define(SUB3,    16#02).
 -define(ALLCALL, 16#01).
 
+%% MODE2 register bits
+-define(INVERT, 16#10). 
+-define(OCH,    16#08).  %% output change on ack, (stop otherwise)
+-define(OUTDRV, 16#04).  %% open-drain=0, totem pole structure=1
+-define(OUTNE_0,  16#00).
+-define(OUTNE_1,  16#01).
+-define(OUTNE_2,  16#02).
+-define(OUTNE_3,  16#03).
+
 start() ->
     start(1).
 
@@ -65,10 +74,27 @@ write_mode2(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
 read_mode2(Bus) ->
     read_byte(Bus, ?MODE2).
 
+%%
+%% Prescale = round(osc_clock/(4096 *update_rate)) - 1
+%% osc_clock = 25MHz
+%%
+%% a frequence of 200 Hz need a prescale of 30
+%% Prescal = round(25000000/(4096*200)) - 1 = 30
+%%
+%%  P = 25000000/(4096*F)-1  => (P+1)*(4096*F) = 25000000
+%%  F = 25000000/(4096*(P+1))
+%%      
+set_pwm_frequency(Bus, F) when is_number(F) ->
+    P = round(25000000/(4096*F)) - 1,
+    write_prescale(Bus, P).
+
+set_update_time(Bus, Ms) ->
+    set_pwm_frequency(Bus, 1/Ms).
+
 write_prescale(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
     write_byte(Bus, ?PRE_SCALE, Val).
 
-read_prescale(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
+read_prescale(Bus) ->
     read_byte(Bus, ?PRE_SCALE).
 
 write_pwm(Bus, all, On, Off) when
@@ -116,4 +142,4 @@ rd_multi_bytes(Reg, I) ->
     A = ?PCA9685_CHIP_ADDR,
     [ #i2c_msg { addr=A, flags=[], len=1, data=(<<Reg>>) },
       #i2c_msg { addr=A, flags=[rd], len=1, data=(<<>>) }
-      | rd_multi_bytes(Reg, I-1)].
+      | rd_multi_bytes(Reg+1, I-1)].
