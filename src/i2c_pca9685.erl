@@ -55,6 +55,12 @@
 -define(OUTNE_2,  16#02).
 -define(OUTNE_3,  16#03).
 
+-define(DECODE(Flags,Flag,Name),
+	if (Flags) band (Flag) =:= (Flag) -> [Name];
+	   true -> []
+	end).
+		
+
 start() ->
     start(1).
 
@@ -71,6 +77,47 @@ reset(Bus) ->
 	Error -> Error
     end.
 
+set_mode1(Bus, Bits) ->
+    {ok,Mode1} = read_mode1(Bus),
+    B = encode_mode1(Bits),
+    write_mode1(Bus, Mode1 bor B).
+
+clr_mode1(Bus, Bits) ->
+    {ok,Mode1} = read_mode1(Bus),
+    B = encode_mode1(Bits),
+    write_mode1(Bus, Mode1 band (bnot B)).
+
+get_mode1(Bus) ->
+    {ok,Mode1} = read_mode1(Bus),
+    decode_mode1(Mode1).
+
+encode_mode1(Bits) ->
+    encode_mode1(Bits, 0).
+
+encode_mode1([B|Bs], Bits) ->
+    case B of
+	restart -> encode_mode1(Bs, Bits bor ?RESTART);
+	extclk ->  encode_mode1(Bs, Bits bor ?EXTCLK);
+	ai ->  encode_mode1(Bs, Bits bor ?AI);
+	sleep ->  encode_mode1(Bs, Bits bor ?SLEEP);
+	sub1 ->  encode_mode1(Bs, Bits bor ?SUB1);
+	sub2 ->  encode_mode1(Bs, Bits bor ?SUB2);
+	sub3 ->  encode_mode1(Bs, Bits bor ?SUB3);
+	allcall ->  encode_mode1(Bs, Bits bor ?ALLCALL)
+    end;
+encode_mode1([], Bits) ->
+    Bits.
+
+decode_mode1(Mode) ->
+    lists:append([?DECODE(Mode,?RESTART,restart),
+		  ?DECODE(Mode,?EXTCLK,extclk),
+		  ?DECODE(Mode,?AI,ai),
+		  ?DECODE(Mode,?SLEEP,sleep),
+		  ?DECODE(Mode,?SUB1,sub1),
+		  ?DECODE(Mode,?SUB2,sub2),
+		  ?DECODE(Mode,?SUB3,sub3),
+		  ?DECODE(Mode,?ALLCALL,allcall)]).
+   
 write_mode1(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
     write_byte(Bus, ?MODE1, Val).
 
@@ -79,6 +126,40 @@ read_mode1(Bus) ->
 	{ok,<<Mode>>} -> {ok,Mode};
 	Error -> Error
     end.
+
+set_mode2(Bus, Bits) ->
+    {ok,Mode1} = read_mode2(Bus),
+    B = encode_mode2(Bits),
+    write_mode2(Bus, Mode1 bor B).
+
+clr_mode2(Bus, Bits) ->
+    {ok,Mode1} = read_mode2(Bus),
+    B = encode_mode2(Bits),
+    write_mode2(Bus, Mode1 band (bnot B)).
+
+get_mode2(Bus) ->
+    {ok,Mode1} = read_mode2(Bus),
+    decode_mode2(Mode1).
+
+encode_mode2(Bits) ->
+    encode_mode2(Bits, 0).
+
+encode_mode2([B|Bs], Bits) ->
+    case B of
+	invert -> encode_mode2(Bs, Bits bor ?INVERT);
+	och ->  encode_mode2(Bs, Bits bor ?OCH);
+	outdrv ->  encode_mode2(Bs, Bits bor ?OUTDRV);
+	{outne,V} -> encode_mode2(Bs, Bits bor (V band 3))
+    end;
+encode_mode2([], Bits) ->
+    Bits.
+
+decode_mode2(Mode) ->
+    lists:append([?DECODE(Mode,?INVERT,invert),
+		  ?DECODE(Mode,?OCH,och),
+		  ?DECODE(Mode,?OUTDRV,outdrv)]) ++
+	[{outne,Mode band 3}].
+
 	    
 write_mode2(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
     write_byte(Bus, ?MODE2, Val).
