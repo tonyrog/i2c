@@ -66,8 +66,18 @@ start() ->
 
 start(Bus) ->
     application:start(i2c),
-    i2c:open(Bus).
+    ok = i2c:open(Bus),
+    init(Bus).
 
+init(Bus) ->
+    write_pwm(Bus, all, 0, 0),
+    write_mode2(Bus, ?OUTDRV),
+    write_mode1(Bus, ?ALLCALL),
+    timer:sleep(5),
+    {ok,Mode1} = read_mode1(Bus),
+    write_mode1(Bus, Mode1 band (bnot ?SLEEP)),
+    timer:sleep(5),
+    ok.
 
 reset(Bus) ->
     Data = <<?SWRST>>,
