@@ -54,11 +54,11 @@
 	 start_link/0]).
 
 %% gen_server callbacks
--export([init/1, 
-	 handle_call/3, 
-	 handle_cast/2, 
+-export([init/1,
+	 handle_call/3,
+	 handle_cast/2,
 	 handle_info/2,
-	 terminate/2, 
+	 terminate/2,
 	 code_change/3]).
 
 -include("../include/i2c.hrl").
@@ -106,7 +106,7 @@
 -define(I2C_FUNC_SMBUS_PROC_CALL,	16#00800000).
 -define(I2C_FUNC_SMBUS_READ_BLOCK_DATA,	16#01000000).
 -define(I2C_FUNC_SMBUS_WRITE_BLOCK_DATA, 16#02000000).
--define(I2C_FUNC_SMBUS_READ_I2C_BLOCK,	16#04000000). %% I2C-like block xfer 
+-define(I2C_FUNC_SMBUS_READ_I2C_BLOCK,	16#04000000). %% I2C-like block xfer
 -define(I2C_FUNC_SMBUS_WRITE_I2C_BLOCK,	16#08000000). %% w/ 1-byte reg. addr.
 
 -define(I2C_SMBUS_READ,	 1).
@@ -146,7 +146,7 @@ close(Bus) when ?is_uint16(Bus) ->
 -spec set_retries(Bus::uint16(), Retries::uint32()) ->
 			 ok | {error, Reason::posix()}.
 
-set_retries(Bus, Retries) when ?is_uint16(Bus), 
+set_retries(Bus, Retries) when ?is_uint16(Bus),
 			       ?is_uint32(Retries) ->
     call(?I2C_PORT, ?CMD_SET_RETRIES, <<Bus:16, Retries:32>>).
 
@@ -156,7 +156,7 @@ set_retries(Bus, Retries) when ?is_uint16(Bus),
 -spec set_timeout(Bus::uint16(), Timeout::uint32()) ->
 			 ok | {error, Reason::posix()}.
 
-set_timeout(Bus, Timeout) when ?is_uint16(Bus), 
+set_timeout(Bus, Timeout) when ?is_uint16(Bus),
 			       ?is_uint32(Timeout) ->
     call(?I2C_PORT, ?CMD_SET_TIMEOUT, <<Bus:16, Timeout:32>>).
 
@@ -165,7 +165,7 @@ set_timeout(Bus, Timeout) when ?is_uint16(Bus),
 %% @end
 -spec set_slave(Bus::uint16(), Slave::uint16()) ->
 		       ok | {error, Reason::posix()}.
-set_slave(Bus, Slave) when ?is_uint16(Bus), 
+set_slave(Bus, Slave) when ?is_uint16(Bus),
 			   ?is_uint16(Slave) ->
     call(?I2C_PORT, ?CMD_SET_SLAVE, <<Bus:16, Slave:16>>).
 
@@ -174,7 +174,7 @@ set_slave(Bus, Slave) when ?is_uint16(Bus),
 %% @end
 -spec set_slave_force(Bus::uint16(), Slave::uint16()) ->
 			     ok | {error, Reason::posix()}.
-set_slave_force(Bus, Slave) when ?is_uint16(Bus), 
+set_slave_force(Bus, Slave) when ?is_uint16(Bus),
 				 ?is_uint16(Slave) ->
     call(?I2C_PORT, ?CMD_SET_SLAVEF, <<Bus:16, Slave:16>>).
 
@@ -183,7 +183,7 @@ set_slave_force(Bus, Slave) when ?is_uint16(Bus),
 %% @end
 -spec set_tenbit(Bus::uint16(), Enable::boolean()) ->
 			ok | {error, Reason::posix()}.
-set_tenbit(Bus, Enable) when ?is_uint16(Bus), 
+set_tenbit(Bus, Enable) when ?is_uint16(Bus),
 			     is_boolean(Enable) ->
     E = if Enable -> 1; true -> 0 end,
     call(?I2C_PORT, ?CMD_SET_TENBIT, <<Bus:16, E:8>>).
@@ -193,7 +193,7 @@ set_tenbit(Bus, Enable) when ?is_uint16(Bus),
 %% @end
 -spec set_pec(Bus::uint16(), Enable::boolean()) ->
 		     ok | {error, Reason::posix()}.
-set_pec(Bus, Enable) when ?is_uint16(Bus), 
+set_pec(Bus, Enable) when ?is_uint16(Bus),
 			  is_boolean(Enable) ->
     E = if Enable -> 1; true -> 0 end,
     call(?I2C_PORT, ?CMD_SET_PEC, <<Bus:16, E:8>>).
@@ -235,7 +235,7 @@ rdwr(Bus, RdWr) when ?is_uint16(Bus),
 %% @end
 
 smbus(Bus, ReadWrite, Command, Size, Data) ->
-    call(?I2C_PORT, ?CMD_SMBUS, 
+    call(?I2C_PORT, ?CMD_SMBUS,
 	 <<Bus:16, ReadWrite, Command:8, Size:32, Data/binary>>).
 
 smbus_read(Bus, Command, Size) ->
@@ -250,7 +250,7 @@ smbus_read_byte(Bus) ->
 	    {ok,Value};
 	Error -> Error
     end.
-	
+
 smbus_read_byte_data(Bus, Command) ->
     case smbus_read(Bus, Command,?I2C_SMBUS_BYTE_DATA) of
 	{ok,<<Value:8,_/binary>>} ->
@@ -273,7 +273,7 @@ smbus_read_block_data(Bus, Command) ->
 	Error -> Error
     end.
 
-smbus_write_quick(Bus, Value) 
+smbus_write_quick(Bus, Value)
   when is_integer(Value) ->
     smbus(Bus,Value,0,?I2C_SMBUS_QUICK,
 	  <<>>).
@@ -283,12 +283,12 @@ smbus_write_byte(Bus, Value)
     smbus_write(Bus,Value,?I2C_SMBUS_BYTE,
 		<<>>).
 
-smbus_write_byte_data(Bus, Command, Value) 
+smbus_write_byte_data(Bus, Command, Value)
   when is_integer(Command), is_integer(Value) ->
     smbus_write(Bus,Command,?I2C_SMBUS_BYTE_DATA,
 		<<Value>>).
 
-smbus_write_word_data(Bus, Command, Value) 
+smbus_write_word_data(Bus, Command, Value)
   when is_integer(Command),is_integer(Value) ->
     smbus_write(Bus, Command,?I2C_SMBUS_WORD_DATA,
 	  <<Value:16/native>>).
@@ -310,7 +310,7 @@ smbus_read_i2c_block_data(Bus, Command, Length)
     when is_integer(Command), is_integer(Length), Length >= 0 ->
     N = max(Length, 32),
     Data = <<N>>,
-    Size = if N =:= 32 -> 
+    Size = if N =:= 32 ->
 		   ?I2C_SMBUS_I2C_BLOCK_BROKEN;
 	      true ->
 		   ?I2C_SMBUS_I2C_BLOCK_DATA
@@ -321,7 +321,7 @@ smbus_read_i2c_block_data(Bus, Command, Length)
 	Error -> Error
     end.
 
-smbus_write_i2c_block_data(Bus, Command, Data) 
+smbus_write_i2c_block_data(Bus, Command, Data)
   when is_integer(Command), is_binary(Data) ->
     N = max(byte_size(Data),32),
     smbus(Bus,?I2C_SMBUS_WRITE,Command,
@@ -357,7 +357,7 @@ level(critical) -> ?DLOG_CRITICAL;
 level(alert) -> ?DLOG_ALERT;
 level(emergency) -> ?DLOG_EMERGENCY;
 level(none) -> ?DLOG_NONE.
-    
+
 
 decode_rdwr([#i2c_msg{flags=Fs,len=Len} | RdWr], Bin) ->
     case lists:member(rd,Fs) of
@@ -379,7 +379,7 @@ encode_rdwr([#i2c_msg{addr=Addr,flags=Fs,len=Len,data=Data} | RdWr],
 		I+1,
 		[<<Addr:16, Flags:16, Len:16, DataLen:16, Data/binary>> |
 		 Acc]);
-encode_rdwr([], N, Acc) -> 
+encode_rdwr([], N, Acc) ->
     {N, list_to_binary(lists:reverse(Acc))}.
 
 encode_flags([F|Fs], Flags) ->
@@ -394,14 +394,13 @@ encode_flags([F|Fs], Flags) ->
     end;
 encode_flags([], Flags) ->
     Flags.
-	    
 
-%% call directly to a registered - bypass gen_server 
+%% call directly to a registered - bypass gen_server
 call(Port, Cmd, Data) ->
     case erlang:port_control(Port, Cmd, Data) of
 	<<0>> ->
 	    ok;
-	<<255,E/binary>> -> 
+	<<255,E/binary>> ->
 	    {error, erlang:binary_to_atom(E, latin1)};
 	<<1,Y>> -> {ok,Y};
 	<<2,Y:16/native-unsigned>> -> {ok, Y};
@@ -410,7 +409,7 @@ call(Port, Cmd, Data) ->
 	<<3,Return/binary>> -> {ok,Return}
     end.
 
-value_to_funcs(Value) ->	
+value_to_funcs(Value) ->
     lists:append(
       [get_value(?I2C_FUNC_I2C,i2c,Value),
        get_value(?I2C_FUNC_10BIT_ADDR,tenbit_addr,Value),
@@ -454,7 +453,7 @@ start() ->
 
 %% @private
 init([]) ->
-    Driver = "i2c_drv", 
+    Driver = "i2c_drv",
     ok = load_driver(code:priv_dir(i2c), Driver),
     Port = erlang:open_port({spawn_driver, Driver},[binary]),
     true = erlang:register(?I2C_PORT, Port),
