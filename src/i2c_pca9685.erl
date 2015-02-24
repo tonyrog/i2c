@@ -16,7 +16,7 @@
 -endif.
 
 %% software reset address
--define(PCA9685_SWRST_ADDR, 16#03).
+-define(SWRST, 16#03).
 
 %% Control register
 -define(MODE1,            16#00).
@@ -62,17 +62,32 @@ start(Bus) ->
     application:start(i2c),
     i2c:open(Bus).
 
+
+reset(Bus) ->
+    Data = <<?SWRST>>,
+    Cmd =  [#i2c_msg { addr=0,flags=[],len=byte_size(Data),data=Data }],
+    case i2c:rdwr(Bus,Cmd) of
+	{ok,_} -> ok;
+	Error -> Error
+    end.
+
 write_mode1(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
     write_byte(Bus, ?MODE1, Val).
 
 read_mode1(Bus) ->
-    read_byte(Bus, ?MODE1).
-
+    case read_byte(Bus, ?MODE1) of
+	{ok,<<Mode>>} -> {ok,Mode};
+	Error -> Error
+    end.
+	    
 write_mode2(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
     write_byte(Bus, ?MODE2, Val).
 
 read_mode2(Bus) ->
-    read_byte(Bus, ?MODE2).
+    case read_byte(Bus, ?MODE2) of
+	{ok,<<Mode>>} -> {ok,Mode};
+	Error -> Error
+    end.
 
 %%
 %% Prescale = round(osc_clock/(4096 *update_rate)) - 1
@@ -83,19 +98,33 @@ read_mode2(Bus) ->
 %%
 %%  P = 25000000/(4096*F)-1  => (P+1)*(4096*F) = 25000000
 %%  F = 25000000/(4096*(P+1))
-%%      
+%%
+set_update_time(Bus, Ms) ->
+    set_pwm_frequency(Bus, 1/Ms).
+
 set_pwm_frequency(Bus, F) when is_number(F) ->
     P = round(25000000/(4096*F)) - 1,
     write_prescale(Bus, P).
 
-set_update_time(Bus, Ms) ->
-    set_pwm_frequency(Bus, 1/Ms).
-
 write_prescale(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
-    write_byte(Bus, ?PRE_SCALE, Val).
+    {ok,Mode} = read_mode1(Bus),
+    if Mode band ?SLEEP =:= ?SLEEP ->
+	    write_byte(Bus, ?PRE_SCALE, Val);
+       true ->
+	    ok = write_mode1(Bus, Mode bor ?SLEEP),
+	    write_byte(Bus, ?PRE_SCALE, Val),
+	    write_mode1(Bus, Mode)
+    end.
 
 read_prescale(Bus) ->
-    read_byte(Bus, ?PRE_SCALE).
+    case read_byte(Bus, ?PRE_SCALE) of
+	{ok,<<Pre>>} -> {ok, Pre};
+	Error -> Error
+    end.
+
+set_duty(Bus, I, Duty) when is_number(Duty),  Duty >= 0, Duty =< 1.0 ->
+    On = round(4095*Duty),
+    write_pwm(Bus,I,On,4095-On).
 
 write_pwm(Bus, all, On, Off) when
       is_integer(On), On >= 0, On =< 16#fff,
@@ -108,26 +137,50 @@ write_pwm(Bus, I, On, Off) when
     write_bytes(Bus, ?LEDX_ON_L(I), <<On:16/little,Off:16/little>>).
 
 read_pwm(Bus, all) ->
-    read_bytes(Bus, ?ALL_LED_ON_L, 4);
+    case read_bytes(Bus, ?ALL_LED_ON_L, 4) of
+	{ok, <<On:16/little, Off:16/little>>} ->
+	    {ok, {On, Off}};
+	Error ->
+	    Error
+    end;
 read_pwm(Bus, I) when I >= 0, I =< 15 ->
-    read_bytes(Bus, ?LEDX_ON_L(I), 4).
+    case read_bytes(Bus, ?LEDX_ON_L(I), 4) of
+	{ok, <<On:16/little, Off:16/little>>} ->
+	    {ok, {On, Off}};
+	Error ->
+	    Error
+    end.
 
 write_byte(Bus, Reg, Val) ->
     A = ?PCA9685_CHIP_ADDR,
     Data = <<Reg,Val>>,
-    i2c:rdwr(Bus, [#i2c_msg { addr=A,flags=[],len=byte_size(Data),data=Data }]).
+    Cmd =  [#i2c_msg { addr=A,flags=[],len=byte_size(Data),data=Data }],
+    case i2c:rdwr(Bus,Cmd) of
+	{ok,_} -> ok;
+	Error -> Error
+    end.
 
 read_byte(Bus, Reg) ->
     A = ?PCA9685_CHIP_ADDR,
     Data = <<Reg>>,
-    i2c:rdwr(Bus, [#i2c_msg { addr=A,flags=[],len=byte_size(Data), data=Data },
-		   #i2c_msg { addr=A,flags=[rd],len=1, data=(<<>>) }]).
+    Cmd = [#i2c_msg { addr=A,flags=[],len=byte_size(Data), data=Data },
+	   #i2c_msg { addr=A,flags=[rd],len=1, data=(<<>>) }],
+    case i2c:rdwr(Bus,Cmd) of
+	{ok,Byte} -> {ok,erlang:iolist_to_binary(Byte)};
+	Error -> Error
+    end.
 
 write_bytes(Bus, Reg, Bytes) ->
-    i2c:rdwr(Bus, wr_multi_bytes(Reg, Bytes)).
-
+    case i2c:rdwr(Bus, wr_multi_bytes(Reg, Bytes)) of
+	{ok, _} -> ok;
+	Error -> Error
+    end.
+	    
 read_bytes(Bus, Reg, N) when is_integer(N) ->
-    i2c:rdwr(Bus, rd_multi_bytes(Reg, N)).
+    case i2c:rdwr(Bus, rd_multi_bytes(Reg, N)) of
+	{ok,Bytes} -> {ok,erlang:iolist_to_binary(Bytes)};
+	Error -> Error
+    end.
 
 wr_multi_bytes(_Reg, <<>>) ->
     [];
