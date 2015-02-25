@@ -227,9 +227,9 @@ set_pulse_us(Bus, I, Pulse, Delay) when is_integer(Pulse), Pulse >= 0,
 				     is_integer(Delay), Delay >= 0 ->
     {ok, F} = read_pwm_frequency(Bus),
     PulseLength = (1000000 / (F*4096)),
-    Pulse1 = round(Pulse / PulseLength),
-    Delay1 = round(Delay / PulseLength),
-    write_pwm(Bus, I, Delay1, Pulse1).
+    On1    = max(0, round(Delay / PulseLength)),
+    Off1   = max(0, round((Delay+Pulse) / PulseLength)-1),
+    write_pwm(Bus, I, On1, Off1).
     
 set_duty(Bus, I, Duty) ->
     set_duty(Bus, I, Duty, 0.0).
@@ -237,9 +237,9 @@ set_duty(Bus, I, Duty) ->
 set_duty(Bus, I, Duty, Delay) when is_number(Duty), 
 				   Duty >= 0, Duty =< 1.0,
 				   Delay >= 0, Delay =< 1.0 ->
-    On = round(4095*Delay),
-    Off = round(4095*Duty),
-    write_pwm(Bus,I,On,Off).
+    On1  = max(0, round(4096*Delay)-1),
+    Off1 = max(0, round(4096*(Delay+Duty))-1),
+    write_pwm(Bus,I,On1,Off1).
 
 write_pwm(Bus, all, On, Off) when
       is_integer(On), On >= 0, On =< 16#fff,
