@@ -215,9 +215,9 @@ read_prescale(Bus) ->
 	Error -> Error
     end.
 
-read_frequency(Bus) ->
+read_pwm_frequency(Bus) ->
     {ok,Prescale} = read_prescale(Bus),
-    round(?OSC_FREQ/(4096*(Prescale+1))).
+    {ok, round(?OSC_FREQ/(4096*(Prescale+1)))}.
 
 %% set pulse length and delay length  in micro seconds
 set_pulse_us(Buse, I, Pulse) ->
@@ -225,7 +225,7 @@ set_pulse_us(Buse, I, Pulse) ->
 
 set_pulse_us(Bus, I, Pulse, Delay) when is_integer(Pulse), Pulse >= 0,
 				     is_integer(Delay), Delay >= 0 ->
-    {ok, F} = read_frequency(Bus),
+    {ok, F} = read_pwm_frequency(Bus),
     PulseLength = (1000000 / (F*4096)),
     Pulse1 = round(Pulse / PulseLength),
     Delay1 = round(Delay / PulseLength),
