@@ -55,6 +55,8 @@
 -define(OUTNE_2,  16#02).
 -define(OUTNE_3,  16#03).
 
+-define(OSC_FREQ, 25000000).
+
 -define(DECODE(Flags,Flag,Name),
 	if (Flags) band (Flag) =:= (Flag) -> [Name];
 	   true -> []
@@ -182,13 +184,13 @@ read_mode2(Bus) ->
 
 %%
 %% Prescale = round(osc_clock/(4096 *update_rate)) - 1
-%% osc_clock = 25MHz
+%% osc_freq = 25MHz
 %%
 %% a frequence of 200 Hz need a prescale of 30
-%% Prescal = round(25000000/(4096*200)) - 1 = 30
+%% Prescal = round(osc_freq/(4096*200)) - 1 = 30
 %%
-%%  P = 25000000/(4096*F)-1  => (P+1)*(4096*F) = 25000000
-%%  F = 25000000/(4096*(P+1))
+%%  P = osc_freq/(4096*F)-1  => (P+1)*(4096*F) = osc_freq
+%%  F = osc_freq/(4096*(P+1))
 %%
 set_update_time(Bus, Ms) ->
     set_pwm_frequency(Bus, 1/Ms).
@@ -213,9 +215,31 @@ read_prescale(Bus) ->
 	Error -> Error
     end.
 
-set_duty(Bus, I, Duty) when is_number(Duty),  Duty >= 0, Duty =< 1.0 ->
-    On = round(4095*Duty),
-    write_pwm(Bus,I,On,4095-On).
+read_frequency(Bus) ->
+    {ok,Prescale} = read_prescale(Bus),
+    round(?OSC_FREQ/(4096*(Prescale+1))).
+
+%% set pulse length and delay length  in micro seconds
+set_pulse_us(Buse, I, Pulse) ->
+    set_pulse_us(Buse, I, Pulse, 0).
+
+set_pulse_us(Bus, I, Pulse, Delay) when is_integer(Pulse), Pulse >= 0,
+				     is_integer(Delay), Delay >= 0 ->
+    {ok, F} = read_frequency(Bus),
+    PulseLength = (1000000 / (F*4096)),
+    Pulse1 = round(Pulse / PulseLength),
+    Delay1 = round(Delay / PulseLength),
+    write_pwm(Bus, I, Delay1, Pulse1).
+    
+set_duty(Bus, I, Duty) ->
+    set_duty(Bus, I, Duty, 0.0).
+
+set_duty(Bus, I, Duty, Delay) when is_number(Duty), 
+				   Duty >= 0, Duty =< 1.0,
+				   Delay >= 0, Delay =< 1.0 ->
+    On = round(4095*Delay),
+    Off = round(4095*Duty),
+    write_pwm(Bus,I,On,Off).
 
 write_pwm(Bus, all, On, Off) when
       is_integer(On), On >= 0, On =< 16#fff,
