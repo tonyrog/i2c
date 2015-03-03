@@ -56,6 +56,7 @@
 -define(OUTNE_3,  16#03).
 
 -define(OSC_FREQ, 25000000).
+-define(MICROS,    1000000).
 
 -define(DECODE(Flags,Flag,Name),
 	if (Flags) band (Flag) =:= (Flag) -> [Name];
@@ -192,11 +193,11 @@ read_mode2(Bus) ->
 %%  P = osc_freq/(4096*F)-1  => (P+1)*(4096*F) = osc_freq
 %%  F = osc_freq/(4096*(P+1))
 %%
-set_update_time(Bus, Ms) ->
-    set_pwm_frequency(Bus, 1/Ms).
+set_update_time(Bus, Us) when is_number(Us) ->
+    set_pwm_frequency(Bus, ?MICROS/Us).
 
 set_pwm_frequency(Bus, F) when is_number(F) ->
-    P = round(25000000/(4096*F)) - 1,
+    P = round(?OSC_FREQ/(4096*F)) - 1,
     write_prescale(Bus, P).
 
 write_prescale(Bus, Val) when is_integer(Val), Val >= 0, Val =< 255 ->
@@ -226,11 +227,11 @@ set_pulse_us(Buse, I, Pulse) ->
 set_pulse_us(Bus, I, Pulse, Delay) when is_integer(Pulse), Pulse >= 0,
 				     is_integer(Delay), Delay >= 0 ->
     {ok, F} = read_pwm_frequency(Bus),
-    PulseLength = (1000000 / (F*4096)),
+    PulseLength = (?MICROS / (F*4096)),
     On1    = max(0, round(Delay / PulseLength)),
     Off1   = max(0, round((Delay+Pulse) / PulseLength)-1),
     write_pwm(Bus, I, On1, Off1).
-    
+
 set_duty(Bus, I, Duty) ->
     set_duty(Bus, I, Duty, 0.0).
 
