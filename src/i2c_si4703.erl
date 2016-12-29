@@ -72,6 +72,10 @@
 -define(CHANNEL,    3).
 -define(SYSCONFIG1, 4).
 -define(SYSCONFIG2, 5).
+-define(SYSCONFIG3, 6).
+-define(TEST1,      7).
+-define(TEST2,      8).
+-define(BOOTCONFIG, 9).
 -define(STATUSRSSI, 10).
 -define(READCHAN,   11).
 -define(RDSA,       12).
@@ -340,3 +344,136 @@ or_reg(Reg, Regs, Elem) ->
 
 and_reg(Reg, Regs, Elem) ->
     setelement(Reg+1, Regs, Elem band element(Reg+1, Regs)).
+
+%% decode registers into proplists
+decode_register(?DEVICEID, <<PN:4, MFGID:12>>) ->
+    [{pn,PN}, {mfgid, MFGID}];
+decode_register(?CHIPID,   <<REV:6, DEV:4, FIRMWARE:6>>) ->
+    [{rev, REV}, {dev,DEV}, {firmware, FIRMWARE}];
+decode_register(?POWERCFG, <<DSMUTE:1,DMUTE:1,MONO:1,_:1,RDSM:1,SKMODE:1,
+			     SEEKUP:1, SEEK:1, _:1,DISABLE:1, _:5,ENABLE:1>>)->
+    [{dsmute,DSMUTE}, {dmute,DMUTE},{mono,MONO},{rdsm,RDSM},{skmode,SKMODE},
+     {seekup,SEEKUP}, {seek, SEEK}, {disable,DISABLE}, {enable, ENABLE}];
+decode_register(?CHANNEL,<<TUNE:1, _:5, CHANNEL:10>>) ->
+    [{tune,TUNE}, {channel,CHANNEL}];
+decode_register(?SYSCONFIG1, <<RDSIEN:1,STCIEN:1,_:1,RDS:1,DE:1,AGCD:1,_:2,
+			       BLNDADJ:2,GPIO3:2,GPIO2:2,GPIO1:2>>) ->
+    [{rdsien,RDSIEN},{stcien,STCIEN},{rds,RDS},{de,DE},{agcd,AGCD},
+     {blndadj,BLNDADJ},{gpio3,GPIO3},{gpio2,GPIO2},{gpio1,GPIO1}];
+decode_register(?SYSCONFIG2, <<SEEKTH:8, BAND:2, SPACE:2, VOLUME:4>>) ->
+    [{seekth,SEEKTH},{'band',BAND},{space,SPACE},{volume,VOLUME}];
+decode_register(?SYSCONFIG3, <<SMUTER:2,SMUTEA:2,_:3,VOLEXT:1,
+			       SKSNR:4,SKCNT:4>>) ->
+    [{skmuter,SMUTER},{smutea,SMUTEA},{volext,VOLEXT},
+     {sksnr,SKSNR},{skcnt,SKCNT}];
+decode_register(?TEST1, <<XOSCEN:1,AHIZEN:1,RESERVED:14>>) ->
+    [{xoscen,XOSCEN},{ahizen,AHIZEN},{reserved,RESERVED}];
+decode_register(?TEST2, <<RESERVED:16>>) ->
+    [{reserved,RESERVED}];
+decode_register(?BOOTCONFIG, <<RESERVED:16>>) ->
+    [{reserved,RESERVED}];
+decode_register(?STATUSRSSI, <<RDSR:1,STC:1,SF:1,AFCRL:1,RDSS:1,BLERA:2,
+			       ST:1,RSSI:8>>) ->
+    [{rdsr,RDSR},{stc,STC},{sf,SF},{afcrl,AFCRL},{rdss,RDSS},{blera,BLERA},
+     {st,ST},{rssi,RSSI}];
+decode_register(?READCHAN,<<BLERB:2,BLERC:2,BLERD:2,READCHAN:10>>) ->
+    [{blerb,BLERB},{blerc,BLERC},{blerd,BLERD},{readchan,READCHAN}];
+decode_register(?RDSA, <<RDSA:16>>) ->
+    [{rdsa,RDSA}];
+decode_register(?RDSB, <<RDSB:16>>) ->
+    [{rdsb,RDSB}];
+decode_register(?RDSC, <<RDSC:16>>) ->
+    [{rdsc,RDSC}];
+decode_register(?RDSD, <<RDSD:16>>) ->
+    [{rdsb,RDSD}].
+
+encode_register(?DEVICEID, New, Old) ->
+    [PN,MFGID] = get_fields([pn,mfgid],update_fields(New, Old)),
+    <<PN:4, MFGID:12>>;
+encode_register(?CHIPID, New, Old) ->
+    [REV, DEV, FIRMWARE] = get_fields([rev,dev,firmware],
+				      update_fields(New, Old)),
+    <<REV:6, DEV:4, FIRMWARE:6>>;
+encode_register(?POWERCFG, New, Old) ->
+    [DSMUTE,DMUTE,MONO,RDSM,SKMODE,
+     SEEKUP, SEEK, DISABLE, ENABLE] = get_fields(
+					[dsmute,dmute,mono,rdsm,skmode,
+					 seekup,seek,disable,enable],
+					update_fields(New, Old)),
+    <<DSMUTE:1,DMUTE:1,MONO:1,0:1,RDSM:1,SKMODE:1,
+      SEEKUP:1, SEEK:1, 0:1,DISABLE:1, 0:5,ENABLE:1>>;
+encode_register(?CHANNEL, New, Old) ->
+    [TUNE,CHANNEL] = get_fields([tune,channel],
+				update_fields(New, Old)),
+    <<TUNE:1, 0:5, CHANNEL:10>>;
+encode_register(?SYSCONFIG1, New, Old) ->
+    [RDSIEN,STCIEN,RDS,DE,AGCD,BLNDADJ,GPIO3,GPIO2,GPIO1] =
+	get_fields([rdsien,stcien,rds,de,agcd,blndadj,gpio3,gpio2,gpio1],
+		   update_fields(New, Old)),
+    <<RDSIEN:1,STCIEN:1,0:1,RDS:1,DE:1,AGCD:1,0:2,
+      BLNDADJ:2,GPIO3:2,GPIO2:2,GPIO1:2>>;
+encode_register(?SYSCONFIG2, New, Old) ->
+    [SEEKTH,BAND,SPACE,VOLUME] = 
+	get_fields([seekth,'band',space,volume],
+		   update_fields(New, Old)),
+    <<SEEKTH:8, BAND:2, SPACE:2, VOLUME:4>>;
+encode_register(?SYSCONFIG3, New, Old) ->
+    [SMUTER,SMUTEA,VOLEXT,SKSNR,SKCNT] =
+	get_fields([skmuter,smutea,volext,sksnr,skcnt],
+		   update_fields(New, Old)),
+    <<SMUTER:2,SMUTEA:2,0:3,VOLEXT:1,SKSNR:4,SKCNT:4>>;
+encode_register(?TEST1, New, Old) ->
+    [XOSCEN,AHIZEN,RESERVED] = get_fields([xoscen,ahizen,reserved], 
+					  update_fields(New, Old)),
+    <<XOSCEN:1,AHIZEN:1,RESERVED:14>>;
+encode_register(?TEST2, New, Old) ->
+    [RESERVED] = get_fields([reserved], update_fields(New, Old)),
+    <<RESERVED:16>>;
+encode_register(?BOOTCONFIG, New, Old) ->
+    [RESERVED] = get_fields([reserved], update_fields(New, Old)),
+    <<RESERVED:16>>;
+encode_register(?STATUSRSSI, New, Old) ->
+    [RDSR,STC,SF,AFCRL,RDSS,BLERA,ST,RSSI] =
+	get_fields([rdsr,stc,sf,afcrl,rdss,blera,st,rssi],
+		   update_fields(New, Old)),
+    <<RDSR:1,STC:1,SF:1,AFCRL:1,RDSS:1,BLERA:2,ST:1,RSSI:8>>;
+encode_register(?READCHAN, New, Old) ->
+    [BLERB,BLERC,BLERD,READCHAN] = 
+	get_fields([blerb,blerc,blerd,readchan],
+		   update_fields(New, Old)),
+    <<BLERB:2,BLERC:2,BLERD:2,READCHAN:10>>;
+encode_register(?RDSA, New, Old) ->
+    [RDSA] = get_fields([rdsa], update_fields(New, Old)),
+    <<RDSA:16>>;
+encode_register(?RDSB, New, Old) ->
+    [RDSB] = get_fields([rdsb], update_fields(New, Old)),
+    <<RDSB:16>>;
+encode_register(?RDSC, New, Old) ->
+    [RDSC] = get_fields([rdsc], update_fields(New, Old)),
+    <<RDSC:16>>;
+encode_register(?RDSD, New, Old) ->
+    [RDSD] = get_fields([rdsd], update_fields(New, Old)),
+    <<RDSD:16>>.
+
+
+get_fields([F|Fs], Ps) ->
+    [proplists:get_value(F, Ps) |
+     get_fields(Fs, Ps)];
+get_fields([], _Ps) ->
+    [].
+
+update_fields([{Field,Value}|Fs], Ps) ->
+    update_fields(Fs, update_field(Field, Value, Ps));
+update_fields([], Ps) ->
+    Ps.
+
+update_field(Field, Value, [{Field,_Old}|Ps]) ->
+    [{Field,Value}|Ps];
+update_field(Field, Value, [P|Ps]) ->
+    [P|update_field(Field,Value,Ps)].
+
+
+
+
+
+    
