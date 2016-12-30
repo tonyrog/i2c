@@ -33,6 +33,7 @@
 -export([set_volume_/3]).
 -export([set_channel_/3]).
 -export([clear_tune_/2]).
+-export([clear_seek_/2]).
 -export([status_rssi/2]).
 -export([status_tune_complete/2]).
 -export([status_seek_complete/2]).
@@ -48,6 +49,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
+	  mode = undefined :: undefined, seek,  tune,
 	  regs :: tuple()    %% current value of the 16 registers (bitstrings)
 	 }).
 
@@ -226,7 +228,8 @@ init([]) ->
     {ok,Regs2} = read_registers(?I2C_BUSID,?SI4703),
     Regs3 = set_fields(?POWERCFG,Regs2,[{dmute,1},{enable,1}]),
     %% Enable RDS, DE=1 -> 50kHz Europe setup
-    Regs4 = set_fields(?SYSCONFIG1,Regs3,[{rdsien,1},{stcien},{rds,1},{de,1}]),
+    Regs4 = set_fields(?SYSCONFIG1,Regs3,[{rdsien,1},{stcien,1},
+					  {rds,1},{de,1},{gpio2,1}]),
     Regs5 = set_fields(?SYSCONFIG2,Regs4,[{volume,0}]),
     write_registers(?I2C_BUSID,?SI4703,Regs5),
 
@@ -258,19 +261,20 @@ init([]) ->
 handle_call(power_on, _From, State) ->
     {reply, ok, State};
 handle_call({set_channel, Channel}, _From, State) when is_number(Channel) ->
-    %% 
-    clear_tune_(?I2C_BUSID,?SI4703),
-    timer:sleep(100),
-
     Regs = set_channel_(?I2C_BUSID,?SI4703,Channel),
-    %% 1. wait for STC to be set in  STATUSRSSI
-    %% 2. clear TUNE in CHANNEL
-    %% 3. wait for STC to be cleared in STATUSRSSI
-    {reply, ok, State#state { regs = Regs }};
+    {reply, ok, State#state { regs = Regs, mode=tune }};
 handle_call(seek_up, _From, State) ->
-    {reply, ok, State};
+    Regs0 = State#state.regs,
+    Regs1 = set_fields(?POWERCFG,Regs0,[{skmode,0},{seekup,1},{seek,1}]),
+    Regs2 = set_fields(?SYSCONFIG3, Regs1, [{sksnr,1},{skcnt,1}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs2),
+    {reply, ok, State#state { regs = Regs2, mode=seek }};
 handle_call(seek_down, _From, State) ->
-    {reply, ok, State};
+    Regs0 = State#state.regs,
+    Regs1 = set_fields(?POWERCFG, Regs0, [{skmode,0},{seekup,0},{seek,1}]),
+    Regs2 = set_fields(?SYSCONFIG3,Regs1, [{sksnr,1},{skcnt,1}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs2),
+    {reply, ok, State#state { regs = Regs2, mode=seek }};
 handle_call({set_volume,Volume}, _From, State) when is_integer(Volume) ->
     Regs = set_volume_(?I2C_BUSID,?SI4703,Volume),
     {reply, ok, State#state { regs = Regs }};
@@ -304,11 +308,34 @@ handle_cast(_Msg, State) ->
 handle_info({gpio_interrupt,0,?GPIO2_PIN,_Value}, State) ->
     %% either STC or RDSR are set
     {ok,Regs} = read_registers(?I2C_BUSID,?SI4703),
-    Ps = decode_register(?STATUSRSSI, get_reg(?STATUSRSSI, Regs)),
+    {_RegName,Ps} = decode_register(?STATUSRSSI, get_reg(?STATUSRSSI, Regs)),
     io:format("interrupt: ~p\n", [Ps]),
     %% SHOULD do some stuff here and then set SEEK in POWERCFG or
     %% TUNE in CHANNEL this will clear STC
-    {noreply, State#state { regs = Regs }};
+    [RDSR,STC] = get_fields([rdsr,stc], Ps),
+    if RDSR =:= 1 ->
+	    %% read rds data
+	    <<_:14,Index:2>> = get_reg(?RDSB, Regs),
+	    <<H,L>> = get_reg(?RDSD, Regs),
+	    io:format("index=~w, data=[~s]\n", [Index,[H,L]]);
+       true ->
+	    ok
+    end,
+    Regs1 = 
+	if STC =:= 1 ->
+		Regs11 = case State#state.mode of
+			    undefined -> Regs;
+			     tune ->
+				 set_field(?CHANNEL,Regs,tune,0);
+			     seek ->
+				 set_field(?POWERCFG,Regs,seek,0)
+			 end,
+		write_registers(?I2C_BUSID,?SI4703,Regs11),
+		Regs11;
+	   true ->
+		Regs
+	end,
+    {noreply, State#state { regs = Regs1 }};
 handle_info(_Info, State) ->
     io:format("handle_info: got ~p\n", [_Info]),
     {noreply, State}.
@@ -391,6 +418,12 @@ clear_tune_(Bus,Addr) ->
 		    set_field(?CHANNEL,Regs,tune,0)
 	    end).
 
+clear_seek_(Bus,Addr) ->
+    update_registers(Bus, Addr, 
+	    fun(Regs) ->
+		    set_field(?POWERCFG,Regs,seek,0)
+	    end).
+
 set_channel_(Bus,Addr,Channel) when is_number(Channel) ->
     update_registers(Bus,Addr,
 	    fun(Regs) ->
@@ -425,8 +458,8 @@ status_seek_complete(Bus, Addr) ->
 
 read_channel_(Bus,Addr) ->
     {ok,Regs} = read_registers(Bus,Addr),
-    {_,Ps} = decode_register(?CHANNEL, get_reg(?CHANNEL, Regs)),
-    [CHANNEL] = get_fields([channel], Ps),
+    {_,Ps} = decode_register(?READCHAN, get_reg(?READCHAN, Regs)),
+    [CHANNEL] = get_fields([readchan], Ps),
     (CHANNEL*10 + 8750) / 100.  %% FIXME: formula! read space and band
 
 dump_registers(Bus,Addr) ->
@@ -490,7 +523,7 @@ decode_register(?SYSCONFIG1, <<RDSIEN:1,STCIEN:1,_:1,RDS:1,DE:1,AGCD:1,_:2,
      [{rdsien,RDSIEN},{stcien,STCIEN},{rds,RDS},{de,DE},{agcd,AGCD},
       {blndadj,BLNDADJ},{gpio3,GPIO3},{gpio2,GPIO2},{gpio1,GPIO1}]};
 decode_register(?SYSCONFIG2, <<SEEKTH:8, BAND:2, SPACE:2, VOLUME:4>>) ->
-    {sysconfig1,
+    {sysconfig2,
      [{seekth,SEEKTH},{'band',BAND},{space,SPACE},{volume,VOLUME}]};
 decode_register(?SYSCONFIG3, <<SMUTER:2,SMUTEA:2,_:3,VOLEXT:1,
 			       SKSNR:4,SKCNT:4>>) ->
