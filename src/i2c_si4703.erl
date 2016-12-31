@@ -16,6 +16,7 @@
 -export([start/0]).
 -export([start_link/0]).
 -export([power_on/0]).
+-export([power_off/0]).
 -export([set_channel/1]).
 -export([set_volume/1]).
 -export([seek_up/0]).
@@ -49,7 +50,8 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-	  mode = undefined :: undefined, seek,  tune,
+	  mode = undefined :: undefined|seek|tune,
+	  group_0 = undefined,
 	  regs :: tuple()    %% current value of the 16 registers (bitstrings)
 	 }).
 
@@ -181,6 +183,9 @@ start_link() ->
 power_on() ->
     gen_server:call(?SERVER, power_on).
 
+power_off() ->
+    gen_server:call(?SERVER, power_off).
+
 set_channel(Channel) ->
     gen_server:call(?SERVER, {set_channel, Channel}).
 
@@ -226,14 +231,15 @@ init([]) ->
     timer:sleep(500),
 
     {ok,Regs2} = read_registers(?I2C_BUSID,?SI4703),
-    Regs3 = set_fields(?POWERCFG,Regs2,[{dmute,1},{enable,1}]),
+    Regs3 = set_fields(?POWERCFG,Regs2,[{dmute,1},{disable,0},{enable,1}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs3),
+    timer:sleep(110),
+
     %% Enable RDS, DE=1 -> 50kHz Europe setup
     Regs4 = set_fields(?SYSCONFIG1,Regs3,[{rdsien,1},{stcien,1},
 					  {rds,1},{de,1},{gpio2,1}]),
-    Regs5 = set_fields(?SYSCONFIG2,Regs4,[{volume,0}]),
+    Regs5 = set_fields(?SYSCONFIG2,Regs4,[{volume,5}]),
     write_registers(?I2C_BUSID,?SI4703,Regs5),
-
-    timer:sleep(110),
 
     gpio:set_interrupt(?GPIO2_PIN, falling),
 
@@ -259,22 +265,44 @@ init([]) ->
 %% 9.8 / 0.2 = 49
 
 handle_call(power_on, _From, State) ->
-    {reply, ok, State};
+    {ok,Regs} = read_registers(?I2C_BUSID,?SI4703),
+    Regs1 = set_fields(?SYSCONFIG1,Regs,[{rds,1}]),
+    Regs2 = set_fields(?POWERCFG,Regs1,[{disable,0},{enable,1}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs2),
+    timer:sleep(110),
+    {ok,Regs3} = read_registers(?I2C_BUSID,?SI4703),
+    {reply, ok, State#state { regs=Regs3 }};
+handle_call(power_off, _From, State) ->
+    {ok,Regs} = read_registers(?I2C_BUSID,?SI4703),
+    Regs1 = set_fields(?SYSCONFIG1,Regs,[{rds,0}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs1),
+    %% sleep?
+    Regs2 = set_fields(?POWERCFG,Regs1,[{disable,1},{enable,1}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs2),
+    %% sleep?
+    {ok,Regs3} = read_registers(?I2C_BUSID,?SI4703),    
+    {reply, ok, State#state { regs=Regs3 }};
 handle_call({set_channel, Channel}, _From, State) when is_number(Channel) ->
     Regs = set_channel_(?I2C_BUSID,?SI4703,Channel),
-    {reply, ok, State#state { regs = Regs, mode=tune }};
+    {reply, ok, State#state { regs = Regs, 
+			      mode=tune,
+			      group_0 = undefined }};
 handle_call(seek_up, _From, State) ->
     Regs0 = State#state.regs,
     Regs1 = set_fields(?POWERCFG,Regs0,[{skmode,0},{seekup,1},{seek,1}]),
     Regs2 = set_fields(?SYSCONFIG3, Regs1, [{sksnr,1},{skcnt,1}]),
     write_registers(?I2C_BUSID,?SI4703,Regs2),
-    {reply, ok, State#state { regs = Regs2, mode=seek }};
+    {reply, ok, State#state { regs = Regs2, 
+			      mode=seek,
+			      group_0 = undefined }};
 handle_call(seek_down, _From, State) ->
     Regs0 = State#state.regs,
     Regs1 = set_fields(?POWERCFG, Regs0, [{skmode,0},{seekup,0},{seek,1}]),
     Regs2 = set_fields(?SYSCONFIG3,Regs1, [{sksnr,1},{skcnt,1}]),
     write_registers(?I2C_BUSID,?SI4703,Regs2),
-    {reply, ok, State#state { regs = Regs2, mode=seek }};
+    {reply, ok, State#state { regs = Regs2, 
+			      mode=seek,
+			      group_0 = undefined }};
 handle_call({set_volume,Volume}, _From, State) when is_integer(Volume) ->
     Regs = set_volume_(?I2C_BUSID,?SI4703,Volume),
     {reply, ok, State#state { regs = Regs }};
@@ -309,17 +337,15 @@ handle_info({gpio_interrupt,0,?GPIO2_PIN,_Value}, State) ->
     %% either STC or RDSR are set
     {ok,Regs} = read_registers(?I2C_BUSID,?SI4703),
     {_RegName,Ps} = decode_register(?STATUSRSSI, get_reg(?STATUSRSSI, Regs)),
-    io:format("interrupt: ~p\n", [Ps]),
+    %% io:format("interrupt: ~p\n", [Ps]),
     %% SHOULD do some stuff here and then set SEEK in POWERCFG or
     %% TUNE in CHANNEL this will clear STC
     [RDSR,STC] = get_fields([rdsr,stc], Ps),
-    if RDSR =:= 1 ->
-	    %% read rds data
-	    <<_:14,Index:2>> = get_reg(?RDSB, Regs),
-	    <<H,L>> = get_reg(?RDSD, Regs),
-	    io:format("index=~w, data=[~s]\n", [Index,[H,L]]);
-       true ->
-	    ok
+    State1 = 
+	if RDSR =:= 1 ->
+		decode_rds(Regs, State);
+	   true ->
+		State
     end,
     Regs1 = 
 	if STC =:= 1 ->
@@ -335,7 +361,7 @@ handle_info({gpio_interrupt,0,?GPIO2_PIN,_Value}, State) ->
 	   true ->
 		Regs
 	end,
-    {noreply, State#state { regs = Regs1 }};
+    {noreply, State1#state { regs = Regs1 }};
 handle_info(_Info, State) ->
     io:format("handle_info: got ~p\n", [_Info]),
     {noreply, State}.
@@ -374,6 +400,7 @@ setup() ->
     reset().
 
 init_pins() ->
+    application:start(gpio),
     gpio:init(?GPIO1_PIN),
     gpio:init(?GPIO2_PIN),
     gpio:init(?RESET_PIN),
@@ -385,12 +412,18 @@ init_pins() ->
 
 %% perform reset and set  i2c interface
 reset() ->
+    application:start(gpio),
+    application:start(i2c),
+    i2c:close(1),
     gpio:clr(?SDIO_PIN),
     timer:sleep(1),
     gpio:clr(?RESET_PIN),
     timer:sleep(1),
     gpio:set(?RESET_PIN),
-    timer:sleep(1).
+    timer:sleep(1),
+    gpio:input(?SDIO_PIN),
+    i2c:open(1),
+    i2c:close(1).
 
 mute_(Bus, Addr, On) when is_boolean(On) ->
     update_registers(Bus, Addr, 
@@ -475,7 +508,6 @@ read_registers(Bus,Addr) ->
     Cmd = [#i2c_msg { addr=Addr,flags=[rd],len=32,data=(<<>>) } ],
     case i2c:rdwr(Bus,Cmd) of
         {ok,Bytes} ->
-	    io:format("read_registers Bytes = ~p\n", [Bytes]),
 	    case erlang:iolist_to_binary(Bytes) of
 		<<R10:16/bitstring,R11:16/bitstring,R12:16/bitstring,
 		  R13:16/bitstring,R14:16/bitstring,R15:16/bitstring,
@@ -484,21 +516,17 @@ read_registers(Bus,Addr) ->
 		  R6:16/bitstring,R7:16/bitstring,R8:16/bitstring,
 		  R9:16/bitstring>> ->
 		    Regs = {R0,R1,R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15},
-		    io:format(" Regs = ~p\n", [Regs]),
 		    {ok,Regs}
 	    end;
 	Error -> Error
     end.
 
-write_registers(Bus,Addr,Regs={_R0,_R1,R2,R3,R4,R5,R6,R7,_R8,_R9,_R10,_R11,_R12,_R13,_R14,_R15}) ->
+write_registers(Bus,Addr,_Regs={_R0,_R1,R2,R3,R4,R5,R6,R7,_R8,_R9,_R10,_R11,_R12,_R13,_R14,_R15}) ->
     Data = <<R2:16/bitstring,R3:16/bitstring,R4:16/bitstring,
 	     R5:16/bitstring,R6:16/bitstring,R7:16/bitstring>>,
-    io:format("write Regs = ~p\n", [Regs]),
-    io:format("write Data = ~p\n", [Data]),
     Cmd = [#i2c_msg { addr=Addr,flags=[],len=12,data=Data } ],
     case i2c:rdwr(Bus,Cmd) of
         {ok,_} ->
-	    io:format("write Data ok\n", []),
 	    ok;
 	Error -> 
 	    io:format("write error ~p\n", [Error]),
@@ -622,6 +650,116 @@ encode_register(?RDSD, New, Old) ->
     [RDSD] = get_fields([rdsd], update_fields(New, Old)),
     <<RDSD:16>>.
 
+decode_rds(Regs, State) ->
+    decode_rds_(get_rds(Regs), State).
+
+-define(VER_A, 0).   
+-define(VER_B, 1).
+
+
+decode_rds_(<<PI:16,0:4,Ver:1,TP:1,PTY:5,TA:1,MS:1,DI:1,CI:2,C:16,H,L>>,
+	    State) ->
+    {Mask0,Cs} = case State#state.group_0 of
+		     undefined -> {0,{$\s,$\s,$\s,$\s,$\s,$\s,$\s,$\s}};
+		     Gr0 -> Gr0
+		 end,
+    Cs1 = setelement(CI*2+1, Cs, H),
+    Cs2 = setelement(CI*2+2, Cs1, L),
+    Mask1 = Mask0 bor (1 bsl CI),
+    Group0 = {Mask1, Cs2},
+    %% if Ver =:= ?VER_A -> add_af(C); true -> ok end,
+    if Mask0 =/= Mask1, Mask1 =:= 2#1111 ->
+	    io:format("program name: ~p, pty=~s\n", 
+		      [tuple_to_list(Cs2),
+		       rds_program_type(PTY)]);
+       true ->
+	    ok
+    end,
+    State#state { group_0 = Group0 };
+decode_rds_(<<PI:16,GT:4,VER:1,TP:1,PTY:5,_:5,C:16,D:16>>,State) ->
+    State.
+
+
+rds_program_type(0) -> "None";
+rds_program_type(1) -> "News";
+rds_program_type(2) -> "Current Affairs";
+rds_program_type(3) -> "Information";
+rds_program_type(4) -> "Sport";
+rds_program_type(5) -> "Education";
+rds_program_type(6) -> "Drama";
+rds_program_type(7) -> "Culture";
+rds_program_type(8) -> "Science";
+rds_program_type(9) -> "Varied";
+rds_program_type(10) -> "Pop Music";
+rds_program_type(11) -> "Rock Music";
+rds_program_type(12) -> "Easy Listening Music";
+rds_program_type(13) -> "Light classical";
+rds_program_type(14) -> "Serious classical";
+rds_program_type(15) -> "Other Music";
+rds_program_type(16) -> "Weather";
+rds_program_type(17) -> "Finance";
+rds_program_type(18) -> "Children's programmes";
+rds_program_type(19) -> "Social Affairs";
+rds_program_type(20) -> "Religion";
+rds_program_type(21) -> "Phone In";
+rds_program_type(22) -> "Travel";
+rds_program_type(23) -> "Leisure";
+rds_program_type(24) -> "Jazz Music";
+rds_program_type(25) -> "Country Music";
+rds_program_type(26) -> "National Music";
+rds_program_type(27) -> "Oldies Music";
+rds_program_type(28) -> "Folk Music";
+rds_program_type(29) -> "Documentary";
+rds_program_type(30) -> "Alarm Test";
+rds_program_type(31) -> "Alarm".
+    
+
+rds_group_type_name(0, _) ->
+    "Basic tuning and switching information";
+rds_group_type_name(1, _) ->
+    "Program-item number and slow labeling codes";
+rds_group_type_name(2, _) ->
+    "Radiotext";
+rds_group_type_name(3, ?VER_A) ->
+    "Applications Identification for Open Data";
+rds_group_type_name(3, ?VER_B) ->
+    "Open data application";
+rds_group_type_name(4, ?VER_A) ->
+    "Clock-time and date";
+rds_group_type_name(4, ?VER_B) ->
+    "Open data application";
+rds_group_type_name(5, _) ->
+    "Transparent data channels or ODA";
+rds_group_type_name(6, _) ->
+    "In house applications or ODA";
+rds_group_type_name(7, ?VER_A) ->
+    "Radio paging or ODA";
+rds_group_type_name(7, ?VER_B) ->
+    "Open data application";
+rds_group_type_name(8, _) ->
+    "Traffic Message Channel or ODA";
+rds_group_type_name(9, _) ->
+    "Emergency warning systems or ODA";
+rds_group_type_name(10, ?VER_A) ->
+    "Program Type Name";
+rds_group_type_name(10, ?VER_B) ->
+    "Open data application";
+rds_group_type_name(11, _) ->
+    "Open data application";
+rds_group_type_name(12, _) ->
+    "Open data application";
+rds_group_type_name(13, ?VER_A) ->
+    "Enhanced Radio paging or ODA";
+rds_group_type_name(13, ?VER_B) ->
+    "Open data application";
+rds_group_type_name(14, _) ->
+    "Enhanced Other Networks information";
+rds_group_type_name(15, ?VER_A) ->
+    "Fast basic tuning and switching information (phased out)";
+rds_group_type_name(15, ?VER_B) ->
+    "Fast tuning and switching information".
+    
+
 get_fields([F|Fs], Ps) ->
     [proplists:get_value(F, Ps) |
      get_fields(Fs, Ps)];
@@ -646,6 +784,13 @@ set_fields(Reg,Regs,Fs) ->
     {_RegName,Fields} = decode_register(Reg,RegContentOld),
     RegContentNew = encode_register(Reg, Fs, Fields),
     set_reg(Reg, Regs, RegContentNew).
+
+get_rds(Regs) ->
+    A = get_reg(?RDSA, Regs),
+    B = get_reg(?RDSB, Regs),
+    C = get_reg(?RDSC, Regs),
+    D = get_reg(?RDSD, Regs),
+    <<A/bitstring,B/bitstring,C/bitstring,D/bitstring>>.
 
 set_reg(Reg, Regs, Elem) ->
     setelement(Reg+1, Regs, Elem).
