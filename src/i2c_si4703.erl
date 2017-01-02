@@ -46,12 +46,17 @@
 -export([init_pins/0]).
 -export([reset/0]).
 -export([setup/0]).
+-export([mjd_to_date/1]).
+-export([date_to_mjd/1]).
 
 -define(SERVER, ?MODULE).
 
 -record(state, {
-	  mode = undefined :: undefined|seek|tune,
-	  group_0 = undefined,
+	  mode    = undefined :: undefined|seek|tune,
+	  service_name = undefined,    %% group 0A/B
+	  radiotext = undefined,  %% group 2A/B
+	  radiotext_a = undefind, %% undefine | true | false
+	  datetime = undefined,  %% group 4A datetime of current station
 	  regs :: tuple()    %% current value of the 16 registers (bitstrings)
 	 }).
 
@@ -286,7 +291,7 @@ handle_call({set_channel, Channel}, _From, State) when is_number(Channel) ->
     Regs = set_channel_(?I2C_BUSID,?SI4703,Channel),
     {reply, ok, State#state { regs = Regs, 
 			      mode=tune,
-			      group_0 = undefined }};
+			      service_name = undefined }};
 handle_call(seek_up, _From, State) ->
     Regs0 = State#state.regs,
     Regs1 = set_fields(?POWERCFG,Regs0,[{skmode,0},{seekup,1},{seek,1}]),
@@ -294,7 +299,7 @@ handle_call(seek_up, _From, State) ->
     write_registers(?I2C_BUSID,?SI4703,Regs2),
     {reply, ok, State#state { regs = Regs2, 
 			      mode=seek,
-			      group_0 = undefined }};
+			      service_name = undefined }};
 handle_call(seek_down, _From, State) ->
     Regs0 = State#state.regs,
     Regs1 = set_fields(?POWERCFG, Regs0, [{skmode,0},{seekup,0},{seek,1}]),
@@ -302,7 +307,7 @@ handle_call(seek_down, _From, State) ->
     write_registers(?I2C_BUSID,?SI4703,Regs2),
     {reply, ok, State#state { regs = Regs2, 
 			      mode=seek,
-			      group_0 = undefined }};
+			      service_name = undefined }};
 handle_call({set_volume,Volume}, _From, State) when is_integer(Volume) ->
     Regs = set_volume_(?I2C_BUSID,?SI4703,Volume),
     {reply, ok, State#state { regs = Regs }};
@@ -657,26 +662,64 @@ decode_rds(Regs, State) ->
 -define(VER_B, 1).
 
 
-decode_rds_(<<PI:16,0:4,Ver:1,TP:1,PTY:5,TA:1,MS:1,DI:1,CI:2,C:16,H,L>>,
+decode_rds_(<<PI:16,0:4,Ver:1,TP:1,PTY:5,TA:1,MS:1,DI:1,Ci:2,C:16,C0,C1>>,
 	    State) ->
-    {Mask0,Cs} = case State#state.group_0 of
-		     undefined -> {0,{$\s,$\s,$\s,$\s,$\s,$\s,$\s,$\s}};
-		     Gr0 -> Gr0
-		 end,
-    Cs1 = setelement(CI*2+1, Cs, H),
-    Cs2 = setelement(CI*2+2, Cs1, L),
-    Mask1 = Mask0 bor (1 bsl CI),
-    Group0 = {Mask1, Cs2},
-    %% if Ver =:= ?VER_A -> add_af(C); true -> ok end,
-    if Mask0 =/= Mask1, Mask1 =:= 2#1111 ->
+    case set_text([{Ci*2,C0},{Ci*2+1,C1}], State#state.service_name) of
+	{true,Text={M,_Cs}} when M =:= 16#f ->
 	    io:format("program name: ~p, pty=~s\n", 
-		      [tuple_to_list(Cs2),
-		       rds_program_type(PTY)]);
-       true ->
-	    ok
-    end,
-    State#state { group_0 = Group0 };
+		      [text_to_string(Text),
+		       rds_program_type(PTY)]),
+	    State#state { service_name = Text };
+	{false,Text} ->
+	    State#state { service_name = Text }
+    end;
+decode_rds_(<<PI:16,2:4,0:1,TP:1,PTY:5,Ci:4,C0,C1,C2,C3>>,State) ->
+    RadioText = if State#state.radiotext_a; Ci =:= 0 -> 
+			clear_text(undefined, 64);
+		   true ->
+			State#state.radiotext
+		end,
+    case set_text([{Ci*4,C0},{Ci*4+1,C1},{Ci*4+2,C2},{Ci*4+3,C3}],
+		  RadioText) of
+	{true,Text={M,_Cs}} when M =:= 16#ffffffffffffffff;
+				 C0 =:= $\r; C1 =:= $\r;
+				 C2 =:= $\r; C3 =:= $\r ->
+	    io:format("radiotext(A): ~p, pty=~s\n", 
+		      [text_to_string(Text),
+		       rds_program_type(PTY)]),
+	    State#state { radiotext = Text, radiotext_a = true };
+	{false,Text} ->
+	    State#state { radiotext = Text, radiotext_a = true }
+    end;
+decode_rds_(<<PI:16,2:4,1:1,TP:1,PTY:5,Ci:4,_PI:16,C0,C1>>,State) ->
+    RadioText = if State#state.radiotext_a; Ci =:= 0 -> 
+			clear_text(undefined, 32);
+		   true ->
+			State#state.radiotext
+		end,
+    case set_text([{Ci*2,C0},{Ci*2+1,C1}], RadioText) of
+	{true,Text={M,_Cs}} when M =:= 16#ffffffff;
+				 C0 =:= $\r; C1 =:= $\r	 ->
+	    io:format("radiotext(B): ~p, pty=~s\n", 
+		      [text_to_string(Text),
+		       rds_program_type(PTY)]),
+	    State#state { radiotext = Text, radiotext_a = false };
+	{false,Text} ->
+	    State#state { radiotext = Text, radiotext_a = false }
+    end;
+decode_rds_(<<PI:16,4:4,0:1,TP:1,PTY:5,_:3,MJD:17,Hour:5,Minute:6,
+	      TZsign:1, TZ:5>>, State) ->
+    case mjd_to_date(MJD) of
+	Data={Y,M,D} ->
+	    TZ = if TZsign =:= 1 -> -(TZ/2); true -> TZ/2 end,
+	    io:format("~4..0w-~2..0w-~2..0w -~2..0w:-~2..0w TZ ~f",
+		      [Y,M,D,Hour,Minute,TZ]),
+	    State#state { datetime = {Data,{Hour,Minute,0},TZ}};
+	undefind ->
+	    State
+    end;
 decode_rds_(<<PI:16,GT:4,VER:1,TP:1,PTY:5,_:5,C:16,D:16>>,State) ->
+    io:fromat("GT = ~w~s\n", [GT, if VER=:=0->"A"; true->"B" end]),
     State.
 
 
@@ -758,7 +801,65 @@ rds_group_type_name(15, ?VER_A) ->
     "Fast basic tuning and switching information (phased out)";
 rds_group_type_name(15, ?VER_B) ->
     "Fast tuning and switching information".
-    
+
+mjd_to_date(0) ->
+    undefined;
+mjd_to_date(MJD) ->
+    Y0 = trunc((MJD - 15078.2) / 365.25),
+    M0 = trunc((MJD - 14956.1 - trunc(Y0*365.25))/30.6001),
+    D  = MJD - 14956 - trunc(Y0*365.25) - trunc(M0*30.6001),
+    K = if M0 =:= 14; M0 =:= 15 -> 1;
+	   true -> 0
+	end,
+    Y = Y0 + K,
+    M = M0 - 1 - K*12,
+    {Y+1900,M,D}.
+
+date_to_mjd(undefined) ->
+    0;
+date_to_mjd({Y,M,D}) ->
+    L = if M =:= 1; M =:= 2 -> 1;
+	   true  -> 0
+	end,
+    14956 + D + trunc((Y-1900)*365.25) + trunc((M+1+L*12)*30.6001).
+
+clear_text({_,Text},MinSize) when is_tuple(Text) ->
+    {0, erlang:make_tuple(min(MinSize, tuple_size(Text)), 0)};
+clear_text(undefined,MinSize) ->
+    erlang:make_tuple(MinSize, 0).
+
+set_text(Insert, undefined) ->
+    set_text(Insert, clear_text(undefined, 8));
+set_text(Insert, {Mask,Text}) ->
+    set_text_(Insert, false, Mask, Text).
+
+set_text_([{Pos,Char}|Insert], Update, Mask, Text) ->
+    Pos1 = Pos+1,
+    Text1 = expand_text(Text, Pos1),
+    case element(Pos1, Text1) of
+	Char ->
+	    set_text_(Insert, Update, Mask, Text1);
+	_ ->
+	    set_text_(Insert, true, Mask bor (1 bsl Pos),
+		      setelement(Pos1,Text1,Char))
+    end;
+set_text_([], Mask, Update, Text) ->
+    {Update, {Mask, Text}}.
+
+expand_text(Tuple, Size) when tuple_size(Tuple) >= Size ->
+    Tuple;
+expand_text(undefined, Size) ->
+    erlang:make_tuple(Size, 0);
+expand_text(Tuple, Size) when tuple_size(Tuple) < Size ->
+    expand_text(erlang:append_element(Tuple, 0), Size).
+
+text_to_string({_,Tuple}) ->
+    trunc_string(tuple_to_list(Tuple)).
+
+trunc_string([0|_]) -> [];
+trunc_string([$\r|_]) -> [];
+trunc_string([C|Cs]) -> [C|trunc_string(Cs)].
+
 
 get_fields([F|Fs], Ps) ->
     [proplists:get_value(F, Ps) |
