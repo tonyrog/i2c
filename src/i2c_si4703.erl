@@ -45,6 +45,7 @@
 -export([get_reg/2]).
 -export([init_pins/0]).
 -export([reset/0]).
+-export([reset_bus/0]).
 -export([setup/0]).
 -export([mjd_to_date/1]).
 -export([date_to_mjd/1]).
@@ -55,14 +56,17 @@
 	  mode    = undefined :: undefined|seek|tune,
 	  service_name = undefined,    %% group 0A/B
 	  radiotext = undefined,  %% group 2A/B
-	  radiotext_a = undefind, %% undefine | true | false
+	  radiotext_a = undefind, %% undefined | true | false
+	  text_a = undefind,      %% undefined | true | false
+	  ptyn = undefined,
+	  ptyn_a = undefined,
 	  datetime = undefined,  %% group 4A datetime of current station
 	  regs :: tuple()    %% current value of the 16 registers (bitstrings)
 	 }).
 
 %% using pins 
 %% 1  - 3.3V
-%% 3  - I2C data  GPIO 2
+%% 3  - I2C data  GPIO 2   (pin 8)
 %% 5  - I2C clock GPIO 3
 %% 9  - GND
 %% 11 - GPIO1     GPIO 17
@@ -230,9 +234,9 @@ init([]) ->
     ok = i2c:open(?I2C_BUSID),
     timer:sleep(100),
     {ok,Regs} = read_registers(?I2C_BUSID,?SI4703),
-    Regs1 = set_field(?TEST1,Regs,xoscen,1),  %% Enable the oscillator
+    %% Enable the oscillator
+    Regs1 = set_fields(?TEST1,Regs,[{xoscen,1},{reserved,16#100}]),
     write_registers(?I2C_BUSID,?SI4703,Regs1),
-    
     timer:sleep(500),
 
     {ok,Regs2} = read_registers(?I2C_BUSID,?SI4703),
@@ -241,12 +245,14 @@ init([]) ->
     timer:sleep(110),
 
     %% Enable RDS, DE=1 -> 50kHz Europe setup
-    Regs4 = set_fields(?SYSCONFIG1,Regs3,[{rdsien,1},{stcien,1},
+    {ok,Regs4} = read_registers(?I2C_BUSID,?SI4703),
+    Regs5 = set_fields(?SYSCONFIG1,Regs4,[{rdsien,1},{stcien,1},
 					  {rds,1},{de,1},{gpio2,1}]),
-    Regs5 = set_fields(?SYSCONFIG2,Regs4,[{volume,5}]),
     write_registers(?I2C_BUSID,?SI4703,Regs5),
+    Regs6 = set_fields(?SYSCONFIG2,Regs5,[{space,2#01},{volume,5}]),
+    write_registers(?I2C_BUSID,?SI4703,Regs6),
 
-    gpio:set_interrupt(?GPIO2_PIN, falling),
+    ok = gpio:set_interrupt(?GPIO2_PIN, falling),
 
     {ok, #state{ regs = Regs5 }}.
 
@@ -406,32 +412,34 @@ setup() ->
 
 init_pins() ->
     application:start(gpio),
-    gpio:init(?GPIO1_PIN),
-    gpio:init(?GPIO2_PIN),
-    gpio:init(?RESET_PIN),
-    gpio:init(?SDIO_PIN),
-    gpio:output(?RESET_PIN),
-    gpio:output(?SDIO_PIN),
-    gpio:input(?GPIO1_PIN),
-    gpio:input(?GPIO2_PIN).
+    ok = gpio:init(?GPIO1_PIN),
+    ok = gpio:init(?GPIO2_PIN),
+    ok = gpio:init(?RESET_PIN),
+    ok = gpio:init(?SDIO_PIN),
+    ok = gpio:input(?GPIO1_PIN),
+    ok = gpio:input(?GPIO2_PIN).
 
 %% perform reset and set  i2c interface
 reset() ->
     application:start(gpio),
     application:start(i2c),
-    i2c:close(1),
-    gpio:clr(?SDIO_PIN),
+    ok = gpio:output(?RESET_PIN),
+    ok = gpio:output(?SDIO_PIN),
+
+    ok = gpio:clr(?SDIO_PIN),
     timer:sleep(1),
-    gpio:clr(?RESET_PIN),
+    ok = gpio:clr(?RESET_PIN),
     timer:sleep(1),
-    gpio:set(?RESET_PIN),
-    timer:sleep(1),
-    gpio:input(?SDIO_PIN),
-    i2c:open(1),
-    i2c:close(1).
+    ok = gpio:set(?RESET_PIN),
+    timer:sleep(1).
+
+reset_bus() ->
+    [] = os:cmd("sudo gpio mode 4 in"),    %% 
+    [] = os:cmd("sudo gpio mode 8 ALT0"),  %% set I2C SDA pin to ALT0
+    ok.
 
 mute_(Bus, Addr, On) when is_boolean(On) ->
-    update_registers(Bus, Addr, 
+    update_registers(Bus, Addr,
 	    fun(Regs) ->
 		    if On =:= true ->
 			    set_field(?POWERCFG,Regs,dmute,0);
@@ -447,7 +455,7 @@ set_volume_(Bus,Addr,Volume) when is_integer(Volume) ->
 			     Volume > 15 -> 15;
 			     true -> Volume
 			  end,
-		    set_field(?SYSCONFIG2,Regs,volume,Vol)
+		    set_fields(?SYSCONFIG2,Regs,[{volume,Vol}])
 	    end).
 
 clear_tune_(Bus,Addr) ->
@@ -665,16 +673,22 @@ decode_rds(Regs, State) ->
 decode_rds_(<<PI:16,0:4,Ver:1,TP:1,PTY:5,TA:1,MS:1,DI:1,Ci:2,C:16,C0,C1>>,
 	    State) ->
     case set_text([{Ci*2,C0},{Ci*2+1,C1}], State#state.service_name) of
-	{true,Text={M,_Cs}} when M =:= 16#f ->
+	{true,Text={M,_Cs}} when M =:= 16#ff ->
 	    io:format("program name: ~p, pty=~s\n", 
 		      [text_to_string(Text),
 		       rds_program_type(PTY)]),
 	    State#state { service_name = Text };
-	{false,Text} ->
+	{_,Text} ->
 	    State#state { service_name = Text }
     end;
-decode_rds_(<<PI:16,2:4,0:1,TP:1,PTY:5,Ci:4,C0,C1,C2,C3>>,State) ->
-    RadioText = if State#state.radiotext_a; Ci =:= 0 -> 
+decode_rds_(<<PI:16,1:4,0:1,TP:1,PTY:5,Page:5,LA:1,VariantCode:3,Code:12,
+	      Day:5,Hour:5,Minute:6>>,State) ->
+    %% Group 1A Programme Item Number and slow labelling codes
+    State;
+decode_rds_(<<PI:16,2:4,0:1,TP:1,PTY:5,TxA:1,Ci:4,C0,C1,C2,C3>>,State) ->
+    RadioText = if State#state.radiotext_a =:= false;
+		   State#state.text_a /= TxA;
+		   Ci =:= 0 ->
 			clear_text(undefined, 64);
 		   true ->
 			State#state.radiotext
@@ -687,12 +701,14 @@ decode_rds_(<<PI:16,2:4,0:1,TP:1,PTY:5,Ci:4,C0,C1,C2,C3>>,State) ->
 	    io:format("radiotext(A): ~p, pty=~s\n", 
 		      [text_to_string(Text),
 		       rds_program_type(PTY)]),
-	    State#state { radiotext = Text, radiotext_a = true };
-	{false,Text} ->
-	    State#state { radiotext = Text, radiotext_a = true }
+	    State#state { radiotext=Text,text_a=TxA,radiotext_a=true };
+	{_,Text} ->
+	    State#state { radiotext=Text,text_a=TxA,radiotext_a=true }
     end;
-decode_rds_(<<PI:16,2:4,1:1,TP:1,PTY:5,Ci:4,_PI:16,C0,C1>>,State) ->
-    RadioText = if State#state.radiotext_a; Ci =:= 0 -> 
+decode_rds_(<<PI:16,2:4,1:1,TP:1,PTY:5,TxA:1,Ci:4,_PI:16,C0,C1>>,State) ->
+    RadioText = if State#state.radiotext_a =:= true;
+		   State#state.text_a /= TxA;
+		   Ci =:= 0 ->
 			clear_text(undefined, 32);
 		   true ->
 			State#state.radiotext
@@ -703,23 +719,47 @@ decode_rds_(<<PI:16,2:4,1:1,TP:1,PTY:5,Ci:4,_PI:16,C0,C1>>,State) ->
 	    io:format("radiotext(B): ~p, pty=~s\n", 
 		      [text_to_string(Text),
 		       rds_program_type(PTY)]),
-	    State#state { radiotext = Text, radiotext_a = false };
-	{false,Text} ->
-	    State#state { radiotext = Text, radiotext_a = false }
+	    State#state { radiotext=Text,text_a=TxA,radiotext_a=false };
+	{_,Text} ->
+	    State#state { radiotext=Text,text_a=TxA,radiotext_a=false }
+    end;
+decode_rds_(<<PI:16,10:4,0:1,TP:1,PTY:5,TxA:1,0:3,Ci:1,C0,C1,C2,C3>>,State) ->
+    PTYN = if State#state.ptyn_a /= TxA ->
+		   clear_text(undefined,8);
+	      true ->
+		   State#state.ptyn
+	   end,
+    case set_text([{Ci*4,C0},{Ci*4+1,C1},{Ci*4+2,C2},{Ci*4+3,C3}], PTYN) of
+	{true,Text={M,_Cs}} when M =:= 16#ff ->
+	    io:format("ptyn(A): ~p, pty=~s\n", 
+		      [text_to_string(Text),
+		       rds_program_type(PTY)]),
+	    State#state { ptyn=Text,ptyn_a=TxA };
+	{_,Text} ->
+	    State#state { ptyn=Text,ptyn_a=TxA }
     end;
 decode_rds_(<<PI:16,4:4,0:1,TP:1,PTY:5,_:3,MJD:17,Hour:5,Minute:6,
 	      TZsign:1, TZ:5>>, State) ->
     case mjd_to_date(MJD) of
 	Data={Y,M,D} ->
-	    TZ = if TZsign =:= 1 -> -(TZ/2); true -> TZ/2 end,
-	    io:format("~4..0w-~2..0w-~2..0w -~2..0w:-~2..0w TZ ~f",
-		      [Y,M,D,Hour,Minute,TZ]),
-	    State#state { datetime = {Data,{Hour,Minute,0},TZ}};
+	    TZoffs = if TZsign =:= 1 -> -(TZ/2); true -> TZ/2 end,
+	    io:format("~4..0w-~2..0w-~2..0w ~2..0w:~2..0w TZ ~.1f\n",
+		      [Y,M,D,Hour,Minute,TZoffs]),
+	    State#state { datetime = {Data,{Hour,Minute,0},TZoffs}};
 	undefind ->
 	    State
     end;
+decode_rds_(<<PI:16,6:4,0:1,TP:1,PTY:5,Data:37>>,State) ->
+    %% 6A In-house application / ODA
+    State;
+decode_rds_(<<PI:16,8:4,0:1,TP:1,PTY:5,_:5,C:16,D:16>>,State) ->
+    %% 8A Traffic Message Channel (occure)
+    State;
+decode_rds_(<<PI:16,14:4,0:1,TP:1,PTY:5,_:5,C:16,D:16>>,State) ->
+    %% 14A Enhanced Other Networks information (occure)
+    State;
 decode_rds_(<<PI:16,GT:4,VER:1,TP:1,PTY:5,_:5,C:16,D:16>>,State) ->
-    io:fromat("GT = ~w~s\n", [GT, if VER=:=0->"A"; true->"B" end]),
+    io:format("GT = ~w~s\n", [GT, if VER=:=0->"A"; true->"B" end]),
     State.
 
 
@@ -823,11 +863,13 @@ date_to_mjd({Y,M,D}) ->
 	end,
     14956 + D + trunc((Y-1900)*365.25) + trunc((M+1+L*12)*30.6001).
 
+%% clear_text: return {Make::integer(), Tuple::tuple()}
 clear_text({_,Text},MinSize) when is_tuple(Text) ->
     {0, erlang:make_tuple(min(MinSize, tuple_size(Text)), 0)};
 clear_text(undefined,MinSize) ->
-    erlang:make_tuple(MinSize, 0).
+    {0, erlang:make_tuple(MinSize, 0)}.
 
+%% set text positions
 set_text(Insert, undefined) ->
     set_text(Insert, clear_text(undefined, 8));
 set_text(Insert, {Mask,Text}) ->
@@ -843,7 +885,7 @@ set_text_([{Pos,Char}|Insert], Update, Mask, Text) ->
 	    set_text_(Insert, true, Mask bor (1 bsl Pos),
 		      setelement(Pos1,Text1,Char))
     end;
-set_text_([], Mask, Update, Text) ->
+set_text_([], Update, Mask,  Text) ->
     {Update, {Mask, Text}}.
 
 expand_text(Tuple, Size) when tuple_size(Tuple) >= Size ->
@@ -858,8 +900,8 @@ text_to_string({_,Tuple}) ->
 
 trunc_string([0|_]) -> [];
 trunc_string([$\r|_]) -> [];
-trunc_string([C|Cs]) -> [C|trunc_string(Cs)].
-
+trunc_string([C|Cs]) -> [C|trunc_string(Cs)];
+trunc_string([]) -> [].
 
 get_fields([F|Fs], Ps) ->
     [proplists:get_value(F, Ps) |
