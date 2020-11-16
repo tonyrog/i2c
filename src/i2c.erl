@@ -290,8 +290,8 @@ smbus_write_word_data(Bus, Command, Value)
     smbus_write(Bus,Command,?I2C_SMBUS_WORD_DATA,<<Value:16/native>>).
 
 smbus_write_block_data(Bus, Command, Data)
-  when is_integer(Command), is_binary(Data) ->
-    N = max(byte_size(Data),32),
+  when is_integer(Command), is_binary(Data), byte_size(Data) =< 32 ->
+    N = byte_size(Data),
     smbus_write(Bus,Command,?I2C_SMBUS_BLOCK_DATA,<<N,Data:N/binary>>).
 
 smbus_process_call(Bus, Command, Value) ->
@@ -303,23 +303,22 @@ smbus_process_call(Bus, Command, Value) ->
     end.
 
 smbus_read_i2c_block_data(Bus, Command, Length)
-    when is_integer(Command), is_integer(Length), Length >= 0 ->
-    N = max(Length, 32),
-    Data = <<N>>,
-    Size = if N =:= 32 ->
+  when is_integer(Command), is_integer(Length), Length >= 0, Length =< 32 ->
+    Data = <<Length>>,
+    Size = if Length =:= 32 ->
 		   ?I2C_SMBUS_I2C_BLOCK_BROKEN;
 	      true ->
 		   ?I2C_SMBUS_I2C_BLOCK_DATA
 	   end,
     case smbus(Bus,?I2C_SMBUS_READ,Command,Size,Data) of
-	{ok,<<N,Return:N/binary,_/binary>>} ->
+	{ok,<<Length,Return:Length/binary,_/binary>>} ->
 	    {ok,Return};
 	Error -> Error
     end.
 
 smbus_write_i2c_block_data(Bus, Command, Data)
-  when is_integer(Command), is_binary(Data) ->
-    N = max(byte_size(Data),32),
+  when is_integer(Command), is_binary(Data), byte_size(Data) =< 32 ->
+    N = byte_size(Data),
     smbus(Bus,?I2C_SMBUS_WRITE,Command,
 	  ?I2C_SMBUS_I2C_BLOCK_BROKEN,<<N,Data:N/binary>>).
 
