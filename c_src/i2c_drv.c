@@ -17,7 +17,6 @@
 #include <sys/ioctl.h>
 
 #include "erl_driver.h"
-// #include "dthread.h"
 
 #define ATOM(NAME) am_ ## NAME
 #define INIT_ATOM(NAME) am_ ## NAME = driver_mk_atom(#NAME)
