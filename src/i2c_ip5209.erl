@@ -32,7 +32,7 @@ open(Bus) ->
     i2c:set_slave(Bus, ?I2C_ADDR_BAT),
     ok.
 
-read_volatge(Bus) ->
+read_voltage(Bus) ->
     {ok,L} = i2c:smbus_read_byte_data(Bus, 16#a2),
     {ok,H} = i2c:smbus_read_byte_data(Bus, 16#a3),
     %%  check negative values

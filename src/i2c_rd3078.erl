@@ -20,20 +20,20 @@ init(Bus) ->
 
 enable_write(Bus) ->
     %% ctr2 - wrtc1
-    {ok,CTR2} = i2c:smbus_read_byte_data(Bus, 16#10) bor 2#1000_0000,
-    i2c:smbus_write_byte_data(Bus, 16#10, CTR2),
+    {ok,CTR2} = i2c:smbus_read_byte_data(Bus, 16#10),
+    i2c:smbus_write_byte_data(Bus, 16#10, CTR2 bor 2#1000_0000),
     %% ctr1 - wrtc2 and wrtc3
-    {ok,CTR1} = i2c:smbus_read_byte_data(Bus, 16#0f) bor 16#1000_0100,
-    i2c:smbus_write_byte_data(Bus, 16#0f, CTR1),
+    {ok,CTR1} = i2c:smbus_read_byte_data(Bus, 16#0f),
+    i2c:smbus_write_byte_data(Bus, 16#0f, CTR1  bor 2#1000_0100),
     ok.
 
 disable_write(Bus) ->
     %% ctr1 - wrtc2 and wrtc3
-    {ok,CTR1} = i2c:smbus_read_byte_data(Bus, 16#0f) band 16#0111_1011,
-    i2c:smbus_write_byte_data(Bus, 16#0f, CTR1),
+    {ok,CTR1} = i2c:smbus_read_byte_data(Bus, 16#0f),
+    i2c:smbus_write_byte_data(Bus, 16#0f, CTR1 band 2#0111_1011),
     %% ctr2 - wrtc1
-    {ok,CTR2} = i2c:smbus_read_byte_data(Bus, 16#10) band 2#0111_1111,
-    i2c:smbus_write_byte_data(Bus, 16#10, CTR2),
+    {ok,CTR2} = i2c:smbus_read_byte_data(Bus, 16#10),
+    i2c:smbus_write_byte_data(Bus, 16#10, CTR2 band 2#0111_1111),
     ok.
 
 read_battery_low_flag(Bus) ->
