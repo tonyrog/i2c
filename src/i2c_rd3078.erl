@@ -165,7 +165,7 @@ set_alarm(Bus, DateTime, WeekdayRepeat) ->
 			      (CTR2 bor 2#0101_0010) band 2#1101_1111),
 
     %% alarm allows weekday, hour/minus/second
-    i2c:smbus_write_byte_data(Bus, 16#0e, 16#0000_1111),
+    i2c:smbus_write_byte_data(Bus, 16#0e, 2#0000_1111),
 
     disable_write(Bus).
 

@@ -275,23 +275,19 @@ smbus_read_block_data(Bus, Command) ->
 
 smbus_write_quick(Bus, Value)
   when is_integer(Value) ->
-    smbus(Bus,Value,0,?I2C_SMBUS_QUICK,
-	  <<>>).
+    smbus(Bus,Value,0,?I2C_SMBUS_QUICK,<<>>).
 
 smbus_write_byte(Bus, Value)
   when is_integer(Value) ->
-    smbus_write(Bus,Value,?I2C_SMBUS_BYTE,
-		<<>>).
+    smbus_write(Bus,Value,?I2C_SMBUS_BYTE,<<>>).
 
 smbus_write_byte_data(Bus, Command, Value)
   when is_integer(Command), is_integer(Value) ->
-    smbus_write(Bus,Command,?I2C_SMBUS_BYTE_DATA,
-		<<Value>>).
+    smbus_write(Bus,Command,?I2C_SMBUS_BYTE_DATA,<<Value>>).
 
 smbus_write_word_data(Bus, Command, Value)
   when is_integer(Command),is_integer(Value) ->
-    smbus_write(Bus, Command,?I2C_SMBUS_WORD_DATA,
-	  <<Value:16/native>>).
+    smbus_write(Bus,Command,?I2C_SMBUS_WORD_DATA,<<Value:16/native>>).
 
 smbus_write_block_data(Bus, Command, Data)
   when is_integer(Command), is_binary(Data) ->
