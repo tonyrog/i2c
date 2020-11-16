@@ -215,10 +215,12 @@ read_byte(Bus, Command) ->
     Byte.
 
 write_byte(Bus, Command, Byte) when Byte band (bnot 16#ff) =:= 0 ->
-    ok = i2c:smbus_write_byte_data(Bus, Command, Byte).
+    {ok,_} = i2c:smbus_write_byte_data(Bus, Command, Byte),
+    ok.
 
 write_block(Bus, Command, Data) when is_binary(Data) ->
-    ok = i2c:smbus_write_i2c_block_data(Bus, Command, Data).
+    {ok,_} = i2c:smbus_write_i2c_block_data(Bus, Command, Data),
+    ok.
 
 read_block(Bus, Command, Len) ->
     i2c:smbus_read_i2c_block_data(Bus, Command, Len).
