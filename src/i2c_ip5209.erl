@@ -32,6 +32,30 @@ open(Bus) ->
     i2c:set_slave(Bus, ?I2C_ADDR_BAT),
     ok.
 
+init_gpio_2led(Bus) ->
+    %% gpio1 tap, L4 sel
+    set_bits(Bus, 16#51, 2#1111_0011, 2#0000_0100), %% 2-bits
+
+    %% gpio1 input enable
+    set_bits(Bus, 16#53, 2#0000_0010),
+
+    %% charging control, gpio2
+    set_bits(Bus, 16#51, 2#1100_1111, 2#0001_0000), %% 2-bits
+
+    %% vset -> register
+    clr_bits(Bus, 16#26, 2#0100_1111),
+
+    %% vset -> gpio4
+    set_bits(Bus, 16#52, 2#1111_0011, 2#0000_0100), %% 2-bits
+
+    %% gpio4 input enable
+    set_bits(Bus, 16#53, 2#1110_1111, 2#0001_0000),
+    ok.
+
+allow_charging_2led(Bus) ->
+    V = read_byte(Bus, 16#55),
+    (V band 2#0000_0100) =:= 0.
+
 read_voltage(Bus) ->
     L = read_byte(Bus, 16#a2),
     H = read_byte(Bus, 16#a3),
@@ -79,19 +103,20 @@ convert_battery_voltage_to_level(_Voltage,_V0,_L0,[]) ->
 
 %% short cuts
     
-%% set (byte) register bit
+%% set (byte) register bits
 set_bits(Bus, Reg, Bits) ->
     Byte = read_byte(Bus, Reg),
     write_byte(Bus, Reg, Byte bor Bits).
 
-%% clear (byte) register bit
-clr_bits(Bus, Reg, Bits) ->
+%% set (byte) register bits but mask first then set Bits
+set_bits(Bus, Reg, Mask, Bits) ->
     Byte = read_byte(Bus, Reg),
-    write_byte(Bus, Reg, Byte band (bnot Bits)).
+    write_byte(Bus, Reg, (Byte band Mask) bor Bits).
 
-upd_bits(Bus, Reg, Set, Clr) ->
+%% clear (byte) register bit clear bits set in mask
+clr_bits(Bus, Reg, Mask) ->
     Byte = read_byte(Bus, Reg),
-    write_byte(Bus, Reg, (Byte bor Set) band (bnot Clr)).
+    write_byte(Bus, Reg, Byte band (bnot Mask)).
 
 read_byte(Bus, Command) ->
     {ok,Byte} = i2c:smbus_read_byte_data(Bus, Command),
