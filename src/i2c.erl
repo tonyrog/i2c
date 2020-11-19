@@ -122,6 +122,13 @@
 -define(I2C_SMBUS_BLOCK_PROC_CALL,  7).	 %% SMBus 2.0
 -define(I2C_SMBUS_I2C_BLOCK_DATA,   8).
 
+-define(I2C_FLAG_TEN,          16#0010).
+-define(I2C_FLAG_RD,           16#0001).
+-define(I2C_FLAG_NOSTART,      16#4000).
+-define(I2C_FLAG_REV_DIR_ADDR, 16#2000).
+-define(I2C_FLAG_IGNORE_NAK,   16#1000).
+-define(I2C_FLAG_NO_RD_ACK,    16#0800).
+-define(I2C_FLAG_RECV_LEN,     16#0400).
 
 %% @doc
 %% Open i2c bus.
@@ -215,20 +222,28 @@ get_funcs(Bus) when ?is_uint16(Bus) ->
 %% @doc
 %% Read/Write command.
 %% @end
--spec rdwr(Bus::uint16(), RdWr::[#i2c_msg{}]) ->
-		  {ok, [binary()]} | {error, posix()}.
+-spec rdwr(Bus::uint16(), RdWr::i2c_msg()) ->
+	  {ok, binary()|[binary()]} | {error, posix()}.
 
-rdwr(Bus, RdWr) when ?is_uint16(Bus),
-		     is_list(RdWr) ->
-    {N,Data} = encode_rdwr(RdWr, 0, []),
-    case call(?I2C_PORT, ?CMD_RDWR, <<Bus:16, N:32, Data/binary>>) of
-	{ok,Bin} ->
-	    {ok, decode_rdwr(RdWr, Bin)};
-	Error ->
-	    Error
+rdwr(Bus, RdWr) when ?is_uint16(Bus) ->
+    case encode_rdwr(RdWr) of
+	ERdWr when is_list(ERdWr) ->
+	    N = length(ERdWr),
+	    Data = [Di || {_,_,Di} <- ERdWr],
+	    case call(?I2C_PORT, ?CMD_RDWR, [<<Bus:16, N:32>>,Data]) of
+		{ok,Bin} ->
+		    {ok, decode_rdwr_list(ERdWr, Bin)};
+		Error ->
+		    Error
+	    end;
+	ERdWr={_,_,Data} ->
+	    case call(?I2C_PORT, ?CMD_RDWR, [<<Bus:16,1:32>>,Data]) of
+		{ok,Bin} ->
+		    {ok, decode_rdwr(ERdWr, Bin)};
+		Error ->
+		    Error
+	    end
     end.
-
-
 
 %% @doc
 %%    SMbus read/write command
@@ -353,39 +368,50 @@ level(alert) -> ?DLOG_ALERT;
 level(emergency) -> ?DLOG_EMERGENCY;
 level(none) -> ?DLOG_NONE.
 
+decode_rdwr({Rd,Len,_}, Bin) ->
+    if Rd ->
+	    <<Read:Len/binary,_Bin1/binary>> = Bin,
+	    Read;
+       true ->
+	    <<>>
+    end.
 
-decode_rdwr([#i2c_msg{flags=Fs,len=Len} | RdWr], Bin) ->
-    case lists:member(rd,Fs) of
-	true ->
+decode_rdwr_list([{Rd,Len,_} | RdWr], Bin) ->
+    if Rd ->
 	    <<Read:Len/binary,Bin1/binary>> = Bin,
-	    [Read | decode_rdwr(RdWr, Bin1)];
-	false ->
-	    [<<>> | decode_rdwr(RdWr, Bin)]
+	    [Read | decode_rdwr_list(RdWr, Bin1)];
+       true ->
+	    [<<>> | decode_rdwr_list(RdWr, Bin)]
     end;
-decode_rdwr([], _Bin) ->
+decode_rdwr_list([], _Bin) ->
     [].
 
+encode_rdwr(RdWr) when is_list(RdWr) ->
+    [ encode_i2c_msg(Msg) || Msg <- RdWr ];
+encode_rdwr(Msg) ->
+    encode_i2c_msg(Msg).
+    
+encode_i2c_msg(#i2c_msg{addr=Addr,flags=Fs,len=Len,data=Data}) ->
+    encode_i2c_msg(Addr,Fs,Len,Data);
+encode_i2c_msg(#{addr:=Addr,flags:=Fs,len:=Len,data:=Data}) ->
+    encode_i2c_msg(Addr,Fs,Len,Data).
 
-encode_rdwr([#i2c_msg{addr=Addr,flags=Fs,len=Len,data=Data} | RdWr],
-	    I, Acc) ->
+encode_i2c_msg(Addr,Fs,Len,Data) ->
     Flags = encode_flags(Fs,0),
-    DataLen = byte_size(Data),
-    encode_rdwr(RdWr,
-		I+1,
-		[<<Addr:16, Flags:16, Len:16, DataLen:16, Data/binary>> |
-		 Acc]);
-encode_rdwr([], N, Acc) ->
-    {N, list_to_binary(lists:reverse(Acc))}.
-
+    DataLen = byte_size(Data), 
+    RDFlag = (Flags band ?I2C_FLAG_RD) =/= 0,
+    Msg = <<Addr:16, Flags:16, Len:16, DataLen:16, Data/binary>>,
+    {RDFlag,Len,Msg}.
+    
 encode_flags([F|Fs], Flags) ->
     case F of
-	ten          -> encode_flags(Fs, 16#0010 bor Flags);
-	rd           -> encode_flags(Fs, 16#0001 bor Flags);
-	nostart      -> encode_flags(Fs, 16#4000 bor Flags);
-	rev_dir_addr -> encode_flags(Fs, 16#2000 bor Flags);
-	ignore_nak   -> encode_flags(Fs, 16#1000 bor Flags);
-	no_rd_ack    -> encode_flags(Fs, 16#0800 bor Flags);
-	recv_len     -> encode_flags(Fs, 16#0400 bor Flags)
+	ten          -> encode_flags(Fs, ?I2C_FLAG_TEN bor Flags);
+	rd           -> encode_flags(Fs, ?I2C_FLAG_RD bor Flags);
+	nostart      -> encode_flags(Fs, ?I2C_FLAG_NOSTART bor Flags);
+	rev_dir_addr -> encode_flags(Fs, ?I2C_FLAG_REV_DIR_ADDR bor Flags);
+	ignore_nak   -> encode_flags(Fs, ?I2C_FLAG_IGNORE_NAK bor Flags);
+	no_rd_ack    -> encode_flags(Fs, ?I2C_FLAG_NO_RD_ACK bor Flags);
+	recv_len     -> encode_flags(Fs, ?I2C_FLAG_RECV_LEN bor Flags)
     end;
 encode_flags([], Flags) ->
     Flags.

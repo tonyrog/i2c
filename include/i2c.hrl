@@ -30,4 +30,11 @@
 	  data   :: binary()
 	}).
 
+-type i2c_map() :: #{addr  => uint16(),
+		     flags => [i2c_flag()],
+		     len   => uint16(),
+		     data  => binary()}.
+
+-type i2c_msg() :: #i2c_msg{} | i2c_map() | [#i2c_msg{}|i2c_map()].
+
 -endif.
