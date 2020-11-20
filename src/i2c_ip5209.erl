@@ -50,7 +50,7 @@ open1(Bus) ->
     open1(Bus, ?I2C_ADDR_BAT).
 
 open1(Bus, Addr) ->
-    Port = i2c:open1(Bus),
+    {ok,Port} = i2c:open1(Bus),
     i2c:set_slave(Port, Addr),
     init_gpio_2led(Port),
     {ok,Port}.

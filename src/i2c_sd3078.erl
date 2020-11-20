@@ -84,7 +84,7 @@ open(Bus, Addr) ->
 open1(Bus) ->
     open1(Bus, ?I2C_ADDR_RTC).
 open1(Bus, Addr) ->
-    Port = i2c:open1(Bus),
+    {ok,Port} = i2c:open1(Bus),
     i2c:set_slave(Port, Addr),
     init(Bus),
     {ok,Port}.
