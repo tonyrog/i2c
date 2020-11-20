@@ -67,6 +67,8 @@
 -define(I2C_PORT, i2c_port).
 -define(I2C_SRV,  i2c_srv).
 
+-define(DEFAULT_BUS, 16#ffff).  %% select first bus
+
 -define(CMD_OPEN,        1).
 -define(CMD_CLOSE,       2).
 -define(CMD_SET_RETRIES, 3).
@@ -144,7 +146,7 @@
 	  ok | {error, Reason::posix()}.
 
 open(Bus) when ?is_uint16(Bus) ->
-    call(i2c_port(Bus), ?CMD_OPEN, <<Bus:16>>).
+    call(?I2C_PORT, ?CMD_OPEN, <<Bus:16>>).
 
 %% @doc
 %% Open i2c instance.
@@ -159,77 +161,85 @@ open1(Bus) when ?is_uint16(Bus) ->
 %% @doc
 %% Close i2c bus.
 %% @end
--spec close(Bus::i2c_bus()) ->
-			 ok | {error, Reason::posix()}.
-close(Bus) when ?is_i2c_bus(Bus) ->
-    call(i2c_port(Bus), ?CMD_CLOSE, <<Bus:16>>).
+-spec close(I2CPort::i2c_bus()) ->
+	  ok | {error, Reason::posix()}.
+close(I2CPort) when ?is_i2c_bus(I2CPort) ->
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_CLOSE, <<Bus:16>>).
 
 %% @doc
 %% Set i2c operation number of retries.
 %% @end
--spec set_retries(Bus::i2c_bus(), Retries::uint32()) ->
+-spec set_retries(I2CPort::i2c_bus(), Retries::uint32()) ->
 			 ok | {error, Reason::posix()}.
 
-set_retries(Bus, Retries) when ?is_i2c_bus(Bus),
+set_retries(I2CPort, Retries) when ?is_i2c_bus(I2CPort),
 			       ?is_uint32(Retries) ->
-    call(i2c_port(Bus), ?CMD_SET_RETRIES, <<Bus:16, Retries:32>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_RETRIES, <<Bus:16, Retries:32>>).
 
 %% @doc
 %% Set i2c operation timeout in milliseconds.
 %% @end
--spec set_timeout(Bus::i2c_bus(), Timeout::uint32()) ->
+-spec set_timeout(I2CPort::i2c_bus(), Timeout::uint32()) ->
 	  ok | {error, Reason::posix()}.
 
-set_timeout(Bus, Timeout) when ?is_i2c_bus(Bus),
+set_timeout(I2CPort, Timeout) when ?is_i2c_bus(I2CPort),
 			       ?is_uint32(Timeout) ->
-    call(i2c_port(Bus), ?CMD_SET_TIMEOUT, <<Bus:16, Timeout:32>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_TIMEOUT, <<Bus:16, Timeout:32>>).
 
 %% @doc
 %% Set i2c slave.
 %% @end
--spec set_slave(Bus::i2c_bus(), Slave::uint16()) ->
+-spec set_slave(I2CPort::i2c_bus(), Slave::uint16()) ->
 		       ok | {error, Reason::posix()}.
-set_slave(Bus, Slave) when ?is_i2c_bus(Bus),
+set_slave(I2CPort, Slave) when ?is_i2c_bus(I2CPort),
 			   ?is_uint16(Slave) ->
-    call(i2c_port(Bus), ?CMD_SET_SLAVE, <<Bus:16, Slave:16>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_SLAVE, <<Bus:16, Slave:16>>).
 
 %% @doc
 %% Set i2c slave, or rebind to new slave.
 %% @end
--spec set_slave_force(Bus::i2c_bus(), Slave::uint16()) ->
+-spec set_slave_force(I2CPort::i2c_bus(), Slave::uint16()) ->
 			     ok | {error, Reason::posix()}.
-set_slave_force(Bus, Slave) when ?is_i2c_bus(Bus),
+set_slave_force(I2CPort, Slave) when ?is_i2c_bus(I2CPort),
 				 ?is_uint16(Slave) ->
-    call(i2c_port(Bus), ?CMD_SET_SLAVEF, <<Bus:16, Slave:16>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_SLAVEF, <<Bus:16, Slave:16>>).
 
 %% @doc
 %% Set i2c slave address style to 10-bit (normal 7-bit)
 %% @end
--spec set_tenbit(Bus::i2c_bus(), Enable::boolean()) ->
+-spec set_tenbit(I2CPort::i2c_bus(), Enable::boolean()) ->
 			ok | {error, Reason::posix()}.
-set_tenbit(Bus, Enable) when ?is_i2c_bus(Bus),
+set_tenbit(I2CPort, Enable) when ?is_i2c_bus(I2CPort),
 			     is_boolean(Enable) ->
     E = if Enable -> 1; true -> 0 end,
-    call(i2c_port(Bus), ?CMD_SET_TENBIT, <<Bus:16, E:8>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_TENBIT, <<Bus:16, E:8>>).
 
 %% @doc
 %% Enable error correction code with SMBus transfers
 %% @end
--spec set_pec(Bus::i2c_bus(), Enable::boolean()) ->
+-spec set_pec(I2CPort::i2c_bus(), Enable::boolean()) ->
 		     ok | {error, Reason::posix()}.
-set_pec(Bus, Enable) when ?is_i2c_bus(Bus),
+set_pec(I2CPort, Enable) when ?is_i2c_bus(I2CPort),
 			  is_boolean(Enable) ->
     E = if Enable -> 1; true -> 0 end,
-    call(i2c_port(Bus), ?CMD_SET_PEC, <<Bus:16, E:8>>).
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SET_PEC, <<Bus:16, E:8>>).
 
 %% @doc
 %% Get value for i2c functions.
 %% @end
--spec get_funcs(Bus::i2c_bus()) ->
+-spec get_funcs(I2CPort::i2c_bus()) ->
 		       ok | {error, Reason::posix()}.
 
-get_funcs(Bus) when ?is_i2c_bus(Bus) ->
-    case call(i2c_port(Bus), ?CMD_GET_FUNCS, <<Bus:16>>) of
+get_funcs(I2CPort) when ?is_i2c_bus(I2CPort) ->
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    case call(Port, ?CMD_GET_FUNCS, <<Bus:16>>) of
 	{ok,Value} ->
 	    {ok, value_to_funcs(Value)};
 	Error ->
@@ -239,22 +249,24 @@ get_funcs(Bus) when ?is_i2c_bus(Bus) ->
 %% @doc
 %% Read/Write command.
 %% @end
--spec rdwr(Bus::i2c_bus(), RdWr::i2c_msg()) ->
+-spec rdwr(I2CPort::i2c_bus(), RdWr::i2c_msg()) ->
 	  {ok, binary()|[binary()]} | {error, posix()}.
 
-rdwr(Bus, RdWr) when ?is_i2c_bus(Bus) ->
+rdwr(I2CPort, RdWr) when ?is_i2c_bus(I2CPort) ->
     case encode_rdwr(RdWr) of
 	ERdWr when is_list(ERdWr) ->
 	    N = length(ERdWr),
 	    Data = [Di || {_,_,Di} <- ERdWr],
-	    case call(i2c_port(Bus), ?CMD_RDWR, [<<Bus:16, N:32>>,Data]) of
+	    {Port,Bus} = i2c_port_and_bus(I2CPort),
+	    case call(Port, ?CMD_RDWR, [<<Bus:16, N:32>>,Data]) of
 		{ok,Bin} ->
 		    {ok, decode_rdwr_list(ERdWr, Bin)};
 		Error ->
 		    Error
 	    end;
 	ERdWr={_,_,Data} ->
-	    case call(i2c_port(Bus), ?CMD_RDWR, [<<Bus:16,1:32>>,Data]) of
+	    {Port,Bus} = i2c_port_and_bus(I2CPort),
+	    case call(Port, ?CMD_RDWR, [<<Bus:16,1:32>>,Data]) of
 		{ok,Bin} ->
 		    {ok, decode_rdwr(ERdWr, Bin)};
 		Error ->
@@ -266,75 +278,76 @@ rdwr(Bus, RdWr) when ?is_i2c_bus(Bus) ->
 %%    SMbus read/write command
 %% @end
 
-smbus(Bus, ReadWrite, Command, Size, Data) ->
-    call(i2c_port(Bus), ?CMD_SMBUS,
+smbus(I2CPort, ReadWrite, Command, Size, Data) ->
+    {Port,Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_SMBUS,
 	 <<Bus:16, ReadWrite, Command:8, Size:32, Data/binary>>).
 
-smbus_read(Bus, Command, Size) ->
-    smbus(Bus, ?I2C_SMBUS_READ, Command, Size, <<>>).
+smbus_read(I2CPort, Command, Size) ->
+    smbus(I2CPort, ?I2C_SMBUS_READ, Command, Size, <<>>).
 
-smbus_write(Bus, Command, Size, Data) ->
-    smbus(Bus, ?I2C_SMBUS_WRITE, Command, Size, Data).
+smbus_write(I2CPort, Command, Size, Data) ->
+    smbus(I2CPort, ?I2C_SMBUS_WRITE, Command, Size, Data).
 
-smbus_read_byte(Bus) ->
-    case smbus_read(Bus,0,?I2C_SMBUS_BYTE) of
+smbus_read_byte(I2CPort) ->
+    case smbus_read(I2CPort,0,?I2C_SMBUS_BYTE) of
 	{ok,<<Value:8,_/binary>>} ->
 	    {ok,Value};
 	Error -> Error
     end.
 
-smbus_read_byte_data(Bus, Command) ->
-    case smbus_read(Bus, Command,?I2C_SMBUS_BYTE_DATA) of
+smbus_read_byte_data(I2CPort, Command) ->
+    case smbus_read(I2CPort, Command,?I2C_SMBUS_BYTE_DATA) of
 	{ok,<<Value:8,_/binary>>} ->
 	    {ok,Value};
 	Error -> Error
     end.
 
-smbus_read_word_data(Bus, Command) ->
-    case smbus_read(Bus,Command,?I2C_SMBUS_WORD_DATA) of
+smbus_read_word_data(I2CPort, Command) ->
+    case smbus_read(I2CPort,Command,?I2C_SMBUS_WORD_DATA) of
 	{ok,<<Value:16/native,_/binary>>} ->
 	    {ok,Value};
 	Error ->
 	    Error
     end.
 
-smbus_read_block_data(Bus, Command) ->
-    case smbus_read(Bus,Command,?I2C_SMBUS_BLOCK_DATA) of
+smbus_read_block_data(I2CPort, Command) ->
+    case smbus_read(I2CPort,Command,?I2C_SMBUS_BLOCK_DATA) of
 	{ok,<<N,Return:N/binary,_/binary>>} ->
 	    {ok,Return};
 	Error -> Error
     end.
 
-smbus_write_quick(Bus, Value)
+smbus_write_quick(I2CPort, Value)
   when is_integer(Value) ->
-    smbus(Bus,Value,0,?I2C_SMBUS_QUICK,<<>>).
+    smbus(I2CPort,Value,0,?I2C_SMBUS_QUICK,<<>>).
 
-smbus_write_byte(Bus, Value)
+smbus_write_byte(I2CPort, Value)
   when is_integer(Value) ->
-    smbus_write(Bus,Value,?I2C_SMBUS_BYTE,<<>>).
+    smbus_write(I2CPort,Value,?I2C_SMBUS_BYTE,<<>>).
 
-smbus_write_byte_data(Bus, Command, Value)
+smbus_write_byte_data(I2CPort, Command, Value)
   when is_integer(Command), is_integer(Value) ->
-    smbus_write(Bus,Command,?I2C_SMBUS_BYTE_DATA,<<Value>>).
+    smbus_write(I2CPort,Command,?I2C_SMBUS_BYTE_DATA,<<Value>>).
 
-smbus_write_word_data(Bus, Command, Value)
+smbus_write_word_data(I2CPort, Command, Value)
   when is_integer(Command),is_integer(Value) ->
-    smbus_write(Bus,Command,?I2C_SMBUS_WORD_DATA,<<Value:16/native>>).
+    smbus_write(I2CPort,Command,?I2C_SMBUS_WORD_DATA,<<Value:16/native>>).
 
-smbus_write_block_data(Bus, Command, Data)
+smbus_write_block_data(I2CPort, Command, Data)
   when is_integer(Command), is_binary(Data), byte_size(Data) =< 32 ->
     N = byte_size(Data),
-    smbus_write(Bus,Command,?I2C_SMBUS_BLOCK_DATA,<<N,Data:N/binary>>).
+    smbus_write(I2CPort,Command,?I2C_SMBUS_BLOCK_DATA,<<N,Data:N/binary>>).
 
-smbus_process_call(Bus, Command, Value) ->
-    case smbus(Bus,?I2C_SMBUS_WRITE,Command,
+smbus_process_call(I2CPort, Command, Value) ->
+    case smbus(I2CPort,?I2C_SMBUS_WRITE,Command,
 	       ?I2C_SMBUS_PROC_CALL,<<Value:16/native>>) of
 	{ok,<<Return:16/native>>} ->
 	    {ok,Return};
 	Error -> Error
     end.
 
-smbus_read_i2c_block_data(Bus, Command, Length)
+smbus_read_i2c_block_data(I2CPort, Command, Length)
   when is_integer(Command), is_integer(Length), Length >= 0, Length =< 32 ->
     Data = <<Length>>,
     Size = if Length =:= 32 ->
@@ -342,22 +355,22 @@ smbus_read_i2c_block_data(Bus, Command, Length)
 	      true ->
 		   ?I2C_SMBUS_I2C_BLOCK_DATA
 	   end,
-    case smbus(Bus,?I2C_SMBUS_READ,Command,Size,Data) of
+    case smbus(I2CPort,?I2C_SMBUS_READ,Command,Size,Data) of
 	{ok,<<Length,Return:Length/binary,_/binary>>} ->
 	    {ok,Return};
 	Error -> Error
     end.
 
-smbus_write_i2c_block_data(Bus, Command, Data)
+smbus_write_i2c_block_data(I2CPort, Command, Data)
   when is_integer(Command), is_binary(Data), byte_size(Data) =< 32 ->
     N = byte_size(Data),
-    smbus(Bus,?I2C_SMBUS_WRITE,Command,
+    smbus(I2CPort,?I2C_SMBUS_WRITE,Command,
 	  ?I2C_SMBUS_I2C_BLOCK_BROKEN,<<N,Data:N/binary>>).
 
-smbus_block_process_call(Bus, Command, Values) ->
+smbus_block_process_call(I2CPort, Command, Values) ->
     N = max(byte_size(Values),32),
     Data = <<N,Values:N/binary>>,
-    case smbus(Bus,?I2C_SMBUS_WRITE,Command,
+    case smbus(I2CPort,?I2C_SMBUS_WRITE,Command,
 	       ?I2C_SMBUS_BLOCK_PROC_CALL,Data) of
 	{ok,<<M,Return:M/binary,_/binary>>} ->
 	    {ok,Return};
@@ -368,18 +381,19 @@ smbus_block_process_call(Bus, Command, Values) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-i2c_port(Bus) when ?is_uint16(Bus) ->
-    ?I2C_PORT;
-i2c_port(Port) when is_port(Port) ->
-    Port.
+i2c_port_and_bus(Bus) when ?is_uint16(Bus) ->
+    {?I2C_PORT, Bus};
+i2c_port_and_bus(Port) when is_port(Port) ->
+    {Port, ?DEFAULT_BUS}.
 
 debug(Level) ->
     L = level(Level),
     call(?I2C_PORT, ?CMD_DEBUG, <<L:32>>).
     
-debug(Bus, Level) when ?is_i2c_bus(Bus), is_atom(Level) ->
+debug(I2CPort, Level) when ?is_i2c_bus(I2CPort), is_atom(Level) ->
     L = level(Level),
-    call(i2c_port(Bus), ?CMD_DEBUG, <<L:32>>).
+    {Port,_Bus} = i2c_port_and_bus(I2CPort),
+    call(Port, ?CMD_DEBUG, <<L:32>>).
 
 %% convert symbolic to numeric level
 level(true)  -> ?DLOG_DEBUG;

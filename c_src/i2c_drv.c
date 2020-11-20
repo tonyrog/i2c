@@ -44,6 +44,8 @@ typedef int  ErlDrvSSizeT;
 #define CMD_SMBUS       11
 #define CMD_DEBUG       12
 
+#define DEFAULT_BUS 0xffff
+
 static inline uint32_t get_uint32(uint8_t* ptr)
 {
     uint32_t value = (ptr[0]<<24) | (ptr[1]<<16) | (ptr[2]<<8) | (ptr[3]<<0);
@@ -165,15 +167,22 @@ static void emit_log(int level, char* file, int line, ...)
 
 static i2c_dev_t* find_dev(i2c_ctx_t* ctx, uint16_t bus, i2c_dev_t*** ppp)
 {
-    i2c_dev_t** pp = &ctx->first;
-
-    while(*pp) {
-	i2c_dev_t* p = *pp;
-	if ((p->bus == bus)) {
-	    if (ppp) *ppp = pp;
-	    return p;
+    if (bus == DEFAULT_BUS) {  // a bit of a hack ... but
+	if (ctx->first == NULL)
+	    return NULL;
+	if (ppp) *ppp = &ctx->first;
+	return ctx->first;
+    }
+    else {
+	i2c_dev_t** pp = &ctx->first;
+	while(*pp) {
+	    i2c_dev_t* p = *pp;
+	    if ((p->bus == bus)) {
+		if (ppp) *ppp = pp;
+		return p;
+	    }
+	    pp = &p->next;
 	}
-	pp = &p->next;
     }
     return NULL;
 }
@@ -284,6 +293,7 @@ static ErlDrvSSizeT i2c_drv_ctl(ErlDrvData d,
 
 	if (len != 2) goto badarg;
 	bus = get_uint16(buf);
+	if (bus == DEFAULT_BUS) goto badarg;
 	if (find_dev(ctx, bus, NULL) != NULL)
 	    goto ok; // already open
 	n = snprintf(path, sizeof(path), "/dev/i2c-%d", bus);
