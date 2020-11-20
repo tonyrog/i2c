@@ -7,6 +7,16 @@
 
 -module(i2c_ip5209).
 
+-export([open/1, open/2, open1/1, open1/2]).
+-export([init_gpio_2led/1]).
+-export([allow_charging_2led/1]).
+-export([read_voltage/1]).
+-export([read_intensity/1]).
+-export([is_power_plugged_2led/1]).
+-export([read_gpio_tap/1]).
+-export([force_shutdown/1]).
+-export([parse_voltage_level/1]).
+
 -define(I2C_ADDR_BAT, 16#75).
 
 -define(BAT_FULL_CHARGE_DURATION, (5 * 60)).
@@ -28,9 +38,22 @@
 -compile(export_all).
 
 open(Bus) ->
+    open(Bus, ?I2C_ADDR_BAT).
+
+open(Bus, Addr) ->
     i2c:open(Bus),
-    i2c:set_slave(Bus, ?I2C_ADDR_BAT),
+    i2c:set_slave(Bus, Addr),
+    init_gpio_2led(Bus),
     ok.
+
+open1(Bus) ->
+    open1(Bus, ?I2C_ADDR_BAT).
+
+open1(Bus, Addr) ->
+    Port = i2c:open1(Bus),
+    i2c:set_slave(Port, Addr),
+    init_gpio_2led(Port),
+    {ok,Port}.
 
 init_gpio_2led(Bus) ->
     %% gpio1 tap, L4 sel

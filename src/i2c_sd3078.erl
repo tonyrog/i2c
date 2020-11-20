@@ -6,7 +6,24 @@
 %%% Created : 15 Nov 2020 by Tony Rogvall <tony@rogvall.se>
 
 -module(i2c_sd3078).
--compile(export_all).
+
+-export([open/1, open/2, open1/1, open1/2]).
+-export([read_battery_low_flag/1]).
+-export([read_battery_high_flag/1]).
+-export([read_battery_charging_flag/1]).
+-export([toggle_charging/2]).
+-export([read_time/1]).
+-export([write_time/2]).
+-expotr([write_time/2]).
+-export([read_alarm_time/1]).
+-export([read_alarm_enabled/1]).
+-export([read_alarm_flag/1]).
+-export([clear_alarm_flag/1]).
+-export([disable_alarm/1]).
+-export([set_alarm/3]).
+
+%% debug/test
+-export([set_test_wake/1]).
 
 -define(I2C_ADDR_RTC, 16#32).
 
@@ -33,6 +50,10 @@
 -define(SD3078_REG_CTRL2,    16#10).
 -define(SD3078_REG_CTRL3,    16#11).
 
+-define(SD3078_REG_CHARGE,   16#18).
+-define(SD3078_REG_BAT,      16#1a).
+
+
 %% ALARM bits
 -define(ALRM_ENA_SC, 2#0000_0001)
 -define(ALRM_ENA_MN, 2#0000_0010).
@@ -52,10 +73,22 @@
 -define(OFFS_MO, 16#05).
 -define(OFFS_YR, 16#06).
 
-
 open(Bus) ->
+    open(Bus, ?I2C_ADDR_RTC).
+open(Bus, Addr) ->
     i2c:open(Bus),
-    i2c:set_slave(Bus, ?I2C_ADDR_RTC).
+    i2c:set_slave(Bus, Addr),
+    init(Bus),
+    ok.
+
+open1(Bus) ->
+    open1(Bus, ?I2C_ADDR_RTC).
+open1(Bus, Addr) ->
+    Port = i2c:open1(Bus),
+    i2c:set_slave(Port, Addr),
+    init(Bus),
+    {ok,Port}.
+    
 
 init(Bus) ->
     clear_alarm_flag(Bus).
@@ -73,22 +106,22 @@ disable_write(Bus) ->
     ok.
 
 read_battery_low_flag(Bus) ->
-    V = read_byte(Bus, 16#1a),
+    V = read_byte(Bus, ?SD3078_REG_BAT),
     (V band 2#0000_0001) =/= 0.
 
 read_battery_high_flag(Bus) ->
-    V = read_byte(Bus,16#1a),
+    V = read_byte(Bus, ?SD3078_REG_BAT),
     (V band 2#0000_0010) =/= 0.
 
 read_battery_charging_flag(Bus) ->
-    V = read_byte(Bus,16#18),
+    V = read_byte(Bus, ?SD3078_REG_CHARGE),
     (V band 2#1000_0000) =/= 0.
 
 %% toggle?
 toggle_charging(Bus, Enable) ->
     enable_write(Bus),
-    V = if Enable -> 16#82; true -> 16#82 band 2#0111_1111 end,
-    write_byte(Bus, 16#18, V),
+    V = if Enable -> 2#1000_0010; true -> 2#0000_0010 end,
+    write_byte(Bus, ?SD3078_REG_CHARGE, V),
     disable_write(Bus).
 
 %% read time
