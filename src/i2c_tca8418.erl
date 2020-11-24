@@ -12,7 +12,7 @@
 
 -export([read_keys/1]).
 -export([read_key_events/1, read_key_events/2]).
-
+-export([read_byte/2, write_byte/3]).
 
 %% default slave address
 -define(I2C_ADDR_TCA, 16#34).
