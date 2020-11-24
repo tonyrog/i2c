@@ -13,6 +13,8 @@
 -export([read_keys/1]).
 -export([read_key_events/1, read_key_events/2]).
 -export([read_byte/2, write_byte/3]).
+-export([configure3x3/1]).
+
 
 %% default slave address
 -define(I2C_ADDR_TCA, 16#34).
@@ -104,6 +106,17 @@ open1(Bus, Addr) ->
     i2c:set_slave(Port, Addr),
     init(Bus),
     {ok,Port}.
+
+configure3x3(Bus) ->
+    write_byte(Bus, ?KP_GPIO1, 16#07),
+    write_byte(Bus, ?KP_GPIO2, 16#07),
+    write_byte(Bus, ?KP_GPIO3, 16#00),
+    write_byte(Bus, ?CFG, 16#95),
+%%    write_byte(Bus, ?UNLOCK1, 16#21),  %% key=33
+%%    write_byte(Bus, ?UNLOCK2, 16#01),  %% key=1
+%%    write_byte(Bus, ?KP_LCK_TIMER, 16#52),
+    ok.
+
 
 init(_Bus) ->
     ok.
