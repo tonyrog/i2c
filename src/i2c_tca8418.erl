@@ -16,9 +16,8 @@
 -export([configure_3x3/1]).
 -export([configure_4x3/1]).
 -export([configure_lock/1]).
--export([keycode_3x3_to_string/1]).
--export([keycode_4x3_to_string/1]).
-
+-export([keycode_3x3_to_sym/1]).
+-export([keycode_4x3_to_sym/1]).
 
 %% default slave address
 -define(I2C_ADDR_TCA, 16#34).
@@ -141,12 +140,11 @@ open1(Bus, Addr) ->
     init(Bus),
     {ok,Port}.
 
-
 -define(KEYMAP_4x3,
-	#{ 1 => "1", 2 => "2", 3 => "3",
-	   11 => "4", 12 => "5", 13 => "6",
-	   21 => "7", 22 => "8", 23 => "9",
-	   31 => "*", 32 => "0", 33 => "#" }).
+	#{ 1 => $1, 2 => $2, 3 => $3,
+	   11 => $4, 12 => $5, 13 => $6,
+	   21 => $7, 22 => $8, 23 => $9,
+	   31 => $*, 32 => $0, 33 => $# }).
 
 configure_3x3(Bus) ->
     write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2),
@@ -155,7 +153,7 @@ configure_3x3(Bus) ->
     write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
     ok.
 
-keycode_3x3_to_string(Key) -> maps:get(Key, ?KEYMAP_4x3).  %% same as 4x3
+keycode_3x3_to_sym(Key) -> maps:get(Key, ?KEYMAP_4x3).  %% same as 4x3
 
 configure_4x3(Bus) ->
     write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2 bor ?ROW3),
@@ -164,7 +162,7 @@ configure_4x3(Bus) ->
     write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
     ok.
 	  
-keycode_4x3_to_string(Key) -> maps:get(Key, ?KEYMAP_4x3).
+keycode_4x3_to_sym(Key) -> maps:get(Key, ?KEYMAP_4x3).
 
 configure_lock(Bus) ->
     configure_lock(Bus, 33, 1, 2, 10).
