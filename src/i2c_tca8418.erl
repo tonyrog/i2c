@@ -13,7 +13,11 @@
 -export([read_keys/1]).
 -export([read_key_events/1, read_key_events/2]).
 -export([read_byte/2, write_byte/3]).
--export([configure3x3/1]).
+-export([configure_3x3/1]).
+-export([configure_4x3/1]).
+-export([configure_lock/1]).
+-export([keycode_3x3_to_string/1]).
+-export([keycode_4x3_to_string/1]).
 
 
 %% default slave address
@@ -48,9 +52,9 @@
 -define(GPIO_INT_EN1, 16#1A).       %% GPIO interrupt enable
 -define(GPIO_INT_EN2, 16#1B).       %% GPIO interrupt enable
 -define(GPIO_INT_EN3, 16#1C).       %% GPIO interrupt enable
--define(KP_GPIO1, 16#1D).
--define(KP_GPIO2, 16#1E).
--define(KP_GPIO3, 16#1F).
+-define(KP_GPIO1, 16#1D).           %% Keypad or GPIO selection
+-define(KP_GPIO2, 16#1E).           %% Keypad or GPIO selection
+-define(KP_GPIO3, 16#1F).           %% Keypad or GPIO selection
 -define(GPI_EM1, 16#20).            %% GPI event mode 1
 -define(GPI_EM2, 16#21).            %% GPI event mode 2
 -define(GPI_EM3, 16#22).            %% GPI event mode 3
@@ -91,6 +95,36 @@
 %%   Key events interrupt status. Requires writing a 1 to clear interrupts.
 -define(K_INT,        16#01).
 
+%% KEY_LCK_EC - Key lock and event counter register
+-define(KEY_EC(X), ((X) band 16#0f)).
+-define(LCK1,      16#10).
+-define(LCK2,      16#20).
+-define(K_LCK_EN,  16#40).
+
+%% KP_GPIO1/GPI_EM1
+-define(ROW0, 16#01).
+-define(ROW1, 16#02).
+-define(ROW2, 16#04).
+-define(ROW3, 16#08).
+-define(ROW4, 16#10).
+-define(ROW5, 16#20).
+-define(ROW6, 16#40).
+-define(ROW7, 16#80).
+
+%% KP_GPIO2/GPI_EM2
+-define(COL0, 16#01).
+-define(COL1, 16#02).
+-define(COL2, 16#04).
+-define(COL3, 16#08).
+-define(COL4, 16#10).
+-define(COL5, 16#20).
+-define(COL6, 16#40).
+-define(COL7, 16#80).
+
+%% KP_GPIO3/GPI_EM3
+-define(COL8, 16#01).
+-define(COL9, 16#02).
+
 open(Bus) ->
     open(Bus, ?I2C_ADDR_TCA).
 open(Bus, Addr) ->
@@ -107,16 +141,44 @@ open1(Bus, Addr) ->
     init(Bus),
     {ok,Port}.
 
-configure3x3(Bus) ->
-    write_byte(Bus, ?KP_GPIO1, 16#07),
-    write_byte(Bus, ?KP_GPIO2, 16#07),
+
+-define(KEYMAP_4x3,
+	#{ 1 => "1", 2 => "2", 3 => "3",
+	   11 => "4", 12 => "5", 13 => "6",
+	   21 => "7", 22 => "8", 23 => "9",
+	   31 => "*", 32 => "0", 33 => "#" }).
+
+configure_3x3(Bus) ->
+    write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2),
+    write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
     write_byte(Bus, ?KP_GPIO3, 16#00),
-    write_byte(Bus, ?CFG, 16#95),
-%%    write_byte(Bus, ?UNLOCK1, 16#21),  %% key=33
-%%    write_byte(Bus, ?UNLOCK2, 16#01),  %% key=1
-%%    write_byte(Bus, ?KP_LCK_TIMER, 16#52),
+    write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
     ok.
 
+keycode_3x3_to_string(Key) -> maps:get(Key, ?KEYMAP_4x3).  %% same as 4x3
+
+configure_4x3(Bus) ->
+    write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2 bor ?ROW3),
+    write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
+    write_byte(Bus, ?KP_GPIO3, 16#00),
+    write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
+    ok.
+	  
+keycode_4x3_to_string(Key) -> maps:get(Key, ?KEYMAP_4x3).
+
+configure_lock(Bus) ->
+    configure_lock(Bus, 33, 1, 2, 10).
+
+%% LckTimer and IntTimer are in seconds
+configure_lock(Bus, Key1, Key2, LckTimer, IntTimer) when
+      is_integer(LckTimer), (LckTimer >= 0),
+      is_integer(IntTimer), (IntTimer >= 0) ->
+    CFG = read_byte(Bus, ?CFG),
+    write_byte(Bus, ?CFG, CFG bor ?K_LCK_IEN),
+    write_byte(Bus, ?UNLOCK1, Key1),
+    write_byte(Bus, ?UNLOCK2, Key2),
+    write_byte(Bus, ?KP_LCK_TIMER,
+	       min(LckTimer,7) bor (min(IntTimer,31) bsl 3)).
 
 init(_Bus) ->
     ok.
