@@ -25,6 +25,9 @@
 -export([gpio_set_direction/3, gpio_get_direction/2]).
 -export([gpio_set_interrupt/3, gpio_get_interrupt/2]). 
 -export([gpio_read_port/2, gpio_write_port/3]).
+%% extra api
+-export([debounce_enable/2, debounce_disable/2]).
+-export([pullup_enable/2, pullup_disable/2]).
 
 %% default slave address
 -define(I2C_ADDR_TCA, 16#34).
@@ -241,6 +244,11 @@ read_events(Bus) ->
     IntStat = read_byte(Bus, ?INT_STAT),
     if IntStat band (?GPI_INT bor ?K_INT) =/= 0 ->
 	    EventList = deq_events(Bus),
+	    if IntStat band ?GPI_INT =/= 0 ->
+		    read_int_stat(Bus);  %% read all int_stat to clear
+	       true ->
+		    ok
+	    end,
 	    write_byte(Bus, ?INT_STAT, IntStat band (?GPI_INT bor ?K_INT)),
 	    EventList;
        true ->
@@ -280,7 +288,11 @@ deq_events(Bus, Acc) ->
 	    end
     end.
 
-
+read_int_stat(Bus) ->
+    Reg1 = read_byte(Bus, ?GPIO_INT_STAT1),
+    Reg2 = read_byte(Bus, ?GPIO_INT_STAT2),
+    Reg3 = read_byte(Bus, ?GPIO_INT_STAT3),
+    pinlist(Reg1,Reg2,Reg3).
 
 %% ensure that the pin is not in keypad mode
 gpio_init(Bus, Pin) ->
@@ -370,6 +382,28 @@ gpio_get_interrupt(Bus, Pin) ->
 	    end
     end.
 
+debounce_enable(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?DEBOUNCE_DIS(RegOffs)),
+    write_byte(Bus, ?DEBOUNCE_DIS(RegOffs), Reg band (bnot PinBit)).
+    
+debounce_disable(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?DEBOUNCE_DIS(RegOffs)),
+    write_byte(Bus, ?DEBOUNCE_DIS(RegOffs), Reg bor PinBit).
+
+pullup_enable(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_PULL(RegOffs)),
+    write_byte(Bus, ?GPIO_PULL(RegOffs), Reg band (bnot PinBit)).
+    
+pullup_disable(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_PULL(RegOffs)),
+    write_byte(Bus, ?GPIO_PULL(RegOffs), Reg bor PinBit).
+    
+
+%% read data port data
 gpio_read_port(Bus, Pin) ->
     {_PinBit,RegOffs} = pin(Pin),
     read_byte(Bus, ?GPIO_DAT_STAT(RegOffs)).
@@ -387,7 +421,18 @@ pin({col,I}) when is_integer(I),I >= 8, I =< 9 -> {?COL(I),2};
 pin(I) when is_integer(I), I >= 0, I =< 7  -> {?ROW(I),0};
 pin(I) when is_integer(I), I >= 8, I =< 15 -> {?COL(I-8),1};
 pin(I) when is_integer(I), I >= 16, I =< 17 -> {?COL(I-16),2}.
+
+%% convert register or concatination of registers 
+%% into list of bit positions (integer pin)
+pinlist(Reg1,Reg2,Reg3) ->
+    pinlist(Reg1) ++ pinlist(Reg2,8) ++ pinlist(Reg3 band 3, 16).
     
+pinlist(Reg) ->
+    pinlist(Reg,0).
+pinlist(0,_I) -> [];
+pinlist(X,I) when X band 1 =/= 0 -> [I | pinlist(X bsr 1, I+1)];
+pinlist(X,I) -> pinlist(X bsr 1, I+1).
+
 
 read_byte(Bus, Command) ->
     {ok,Byte} = i2c:smbus_read_byte_data(Bus, Command),
