@@ -265,7 +265,7 @@ deq_events(Bus, Acc) ->
 	    lists:reverse(Acc);
 	_N ->
 	    EvA = read_byte(Bus, ?KEY_EVENT_A),
-	    Key = EvA band 16#f7,
+	    Key = EvA band 16#7f,
 	    if Key >= 1, Key =< 80 ->
 		    KeyState = if EvA band 16#80 =/= 0 -> press;
 				  true -> release 
