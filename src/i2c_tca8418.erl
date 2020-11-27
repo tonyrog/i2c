@@ -10,14 +10,21 @@
 -export([open/1, open/2]).
 -export([open1/1, open1/2]).
 
--export([read_keys/1]).
--export([read_key_events/1, read_key_events/2]).
+%% generate key api
+-export([read_events/1]).
+-export([deq_events/1, deq_events/2]).
 -export([read_byte/2, write_byte/3]).
 -export([configure_3x3/1]).
 -export([configure_4x3/1]).
 -export([configure_lock/1]).
 -export([keycode_to_sym/1]).
 -export([sym_to_keycode/1]).
+%% GPIO api
+-export([gpio_init/2, gpio_get/2, gpio_set/2, gpio_clr/2]).
+-export([gpio_input/2, gpio_output/2]).
+-export([gpio_set_direction/3, gpio_get_direction/2]).
+-export([gpio_set_interrupt/3, gpio_get_interrupt/2]). 
+-export([gpio_read_port/2, gpio_write_port/3]).
 
 %% default slave address
 -define(I2C_ADDR_TCA, 16#34).
@@ -42,7 +49,7 @@
 -define(GPIO_INT_STAT1, 16#11).     %% GPIO interrupt status
 -define(GPIO_INT_STAT2, 16#12).     %% GPIO interrupt status
 -define(GPIO_INT_STAT3, 16#13).     %% GPIO interrupt status
--define(GPIO_DAT_STAT1, 16#14).     %% GPIO data status   
+-define(GPIO_DAT_STAT1, 16#14).     %% GPIO data status
 -define(GPIO_DAT_STAT2, 16#15).     %% GPIO data status
 -define(GPIO_DAT_STAT3, 16#16).     %% GPIO data status
 -define(GPIO_DAT_OUT1, 16#17).      %% GPIO data out
@@ -69,6 +76,18 @@
 -define(GPIO_PULL1, 16#2C).
 -define(GPIO_PULL2, 16#2D).
 -define(GPIO_PULL3, 16#2E).
+
+%% gpio port address index by pin group I
+-define(GPIO_INT_STAT(I), (?GPIO_INT_STAT1+(I))).
+-define(GPIO_DAT_STAT(I), (?GPIO_DAT_STAT1+(I))).
+-define(GPIO_DAT_OUT(I),  (?GPIO_DAT_OUT1+(I))).
+-define(GPIO_INT_EN(I),   (?GPIO_INT_EN1+(I))).
+-define(KP_GPIO(I),       (?KP_GPIO1+(I))).
+-define(GPI_EM(I),        (?GPIO_EM1+(I))).
+-define(GPIO_DIR(I),      (?GPIO_DIR1+(I))).
+-define(GPIO_INT_LVL(I),  (?GPIO_INT_LVL1+(I))).
+-define(DEBOUNCE_DIS(I),  (?DEBOUNCE_DIS1+(I))).
+-define(GPIO_PULL(I),     (?GPIO_PULL1+(I))).
 
 %% CFG flags
 -define(AI,           16#80).
@@ -100,7 +119,7 @@
 -define(LCK2,      16#20).
 -define(K_LCK_EN,  16#40).
 
-%% KP_GPIO1/GPI_EM1
+%% KP_GPIO1/GPI_EM1..
 -define(ROW0, 16#01).
 -define(ROW1, 16#02).
 -define(ROW2, 16#04).
@@ -110,7 +129,7 @@
 -define(ROW6, 16#40).
 -define(ROW7, 16#80).
 
-%% KP_GPIO2/GPI_EM2
+%% KP_GPIO2/GPI_EM2...
 -define(COL0, 16#01).
 -define(COL1, 16#02).
 -define(COL2, 16#04).
@@ -120,9 +139,21 @@
 -define(COL6, 16#40).
 -define(COL7, 16#80).
 
-%% KP_GPIO3/GPI_EM3
+%% KP_GPIO3/GPI_EM3...
 -define(COL8, 16#01).
 -define(COL9, 16#02).
+
+-define(ROW(I), (1 bsl (I))).
+-define(COL(I), (1 bsl ((I) band 7))).
+
+-type posix() :: atom().
+-type pin() :: 0..17 | {row,0..7} | {col,0..9}.
+-type style() :: none | rising | falling.
+-type event() :: {press,Key::integer()} | {release,Key::integer()} |
+		 {gpio_interrupt,Port::0..2,Pin::0..17,Value::0..1}.
+
+-spec open(Bus::i2c:i2c_bus()) ->
+	  ok | {error, Reason::posix()}.
 
 open(Bus) ->
     open(Bus, ?I2C_ADDR_TCA).
@@ -131,6 +162,9 @@ open(Bus, Addr) ->
     i2c:set_slave(Bus, Addr),
     init(Bus),
     ok.
+
+-spec open1(Bus::i2c:i2c_bus()) ->
+	  {ok,port()} | {error, Reason::posix()}.
 
 open1(Bus) ->
     open1(Bus, ?I2C_ADDR_TCA).
@@ -152,6 +186,15 @@ open1(Bus, Addr) ->
 	   $7 => 21, $8 => 22, $9 => 23,
 	   $* => 31, $0 => 32, $# => 33 }).
 
+-spec keycode_to_sym(Key::integer()) -> char().
+keycode_to_sym(Key) ->
+    maps:get(Key, ?KEYMAP_4x3).
+
+-spec sym_to_keycode(char()) -> integer().
+sym_to_keycode(Sym) ->
+    maps:get(Sym, ?KEYREVMAP_4x3).
+
+-spec configure_3x3(Bus::i2c:i2c_bus()) -> ok.
 configure_3x3(Bus) ->
     write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2),
     write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
@@ -159,6 +202,7 @@ configure_3x3(Bus) ->
     write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
     ok.
 
+-spec configure_4x3(Bus::i2c:i2c_bus()) -> ok.
 configure_4x3(Bus) ->
     write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2 bor ?ROW3),
     write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
@@ -166,15 +210,15 @@ configure_4x3(Bus) ->
     write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
     ok.
 
-keycode_to_sym(Key) ->
-    maps:get(Key, ?KEYMAP_4x3).
-sym_to_keycode(Sym) ->
-    maps:get(Sym, ?KEYREVMAP_4x3).
-    
-	  
+-spec configure_lock(Bus::i2c:i2c_bus()) -> ok.	  
 configure_lock(Bus) ->
     configure_lock(Bus, 33, 1, 2, 10).
 
+-spec configure_lock(Bus::i2c:i2c_bus(),
+		     Key1::integer(),
+		     Key2::integer(),
+		     LckTimer::0..7,
+		     IntTimer::0..31) -> ok.
 %% LckTimer and IntTimer are in seconds
 configure_lock(Bus, Key1, Key2, LckTimer, IntTimer) when
       is_integer(LckTimer), (LckTimer >= 0),
@@ -187,30 +231,163 @@ configure_lock(Bus, Key1, Key2, LckTimer, IntTimer) when
 	       min(LckTimer,7) bor (min(IntTimer,31) bsl 3)).
 
 init(_Bus) ->
+    %% nothing yet
     ok.
 
-read_keys(Bus) ->
+-spec read_events(Bus::i2c:i2c_bus()) ->
+	  [event()].
+
+read_events(Bus) ->
     IntStat = read_byte(Bus, ?INT_STAT),
     if IntStat band (?GPI_INT bor ?K_INT) =/= 0 ->
-	    Keys = read_key_events(Bus),
+	    EventList = deq_events(Bus),
 	    write_byte(Bus, ?INT_STAT, IntStat band (?GPI_INT bor ?K_INT)),
-	    Keys;
+	    EventList;
        true ->
 	    []
     end.
 
-read_key_events(Bus) ->
-    read_key_events(Bus,[]).
+%% Note! Does not clear the interrupt! use read_keys for that
+deq_events(Bus) ->
+    deq_events(Bus,[]).
 
-read_key_events(Bus, Acc) ->
+deq_events(Bus, Acc) ->
     case read_byte(Bus, ?KEY_LCK_EC) band 16#0f of
 	0 -> 
 	    lists:reverse(Acc);
 	_N ->
-	    Key = read_byte(Bus, ?KEY_EVENT_A),
-	    KeyStat = if Key band 16#80 =/= 0 -> press; true -> release end,
-	    read_key_events(Bus, [{KeyStat,Key band 16#7f}|Acc])
+	    EvA = read_byte(Bus, ?KEY_EVENT_A),
+	    Key = EvA band 16#f7,
+	    if Key >= 1, Key =< 80 ->
+		    KeyState = if EvA band 16#80 =/= 0 -> press;
+				  true -> release 
+			       end,
+		    deq_events(Bus, [{KeyState,Key}|Acc]);
+	       Key >= 97, Key =< 104 ->  %% row R0..R7 interrupt
+		    Value = EvA bsr 7,
+		    Port = 0,
+		    Pin  = Key-97,   %% may be feed into pin(I)
+		    deq_events(Bus, [{gpio_interrupt,Port,Pin,Value}|Acc]);
+	       Key >= 105, Key =< 114 -> %% row C0..C9 interrupt
+		    Value = EvA bsr 7,
+		    Pin0  = (Key-105),      %% 0..9
+		    Port  = 1+(Pin0 bsr 3), %% 1..2
+		    Pin   = 8+Pin0,         %% may be feed into pin(I)
+		    deq_events(Bus, [{gpio_interrupt,Port,Pin,Value}|Acc]);
+	       true ->
+		    io:format("tca8418: unexpeced key: ~w\n", [Key]),
+		    deq_events(Bus, Acc)
+	    end
     end.
+
+
+
+%% ensure that the pin is not in keypad mode
+gpio_init(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?KP_GPIO(RegOffs)),
+    write_byte(Bus, ?KP_GPIO(RegOffs), Reg band (bnot PinBit)).
+
+%% fix new api, return boolean
+gpio_get(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_DAT_STAT(RegOffs)),
+    case Reg band PinBit of
+	0 -> {ok,0};
+	_ -> {ok,1}
+    end.
+
+gpio_set(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_DAT_OUT(RegOffs)), %% or _STAT? unclear..
+    write_byte(Bus, ?GPIO_DAT_OUT(RegOffs), Reg bor PinBit).
+
+gpio_clr(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_DAT_OUT(RegOffs)),  %% or _STAT? unclear..
+    write_byte(Bus, ?GPIO_DAT_OUT(RegOffs), Reg band (bnot PinBit)).
+
+gpio_input(Bus, Pin) ->
+    gpio_set_direction(Bus, Pin, in).
+
+gpio_output(Bus, Pin) ->
+    gpio_set_direction(Bus, Pin, out).
+
+gpio_set_direction(Bus, Pin, Dir) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_DIR(RegOffs)),
+    case Dir of
+	in ->
+	    write_byte(Bus, ?GPIO_DIR(RegOffs), Reg band (bnot PinBit));
+	out ->
+	    write_byte(Bus, ?GPIO_DIR(RegOffs), Reg bor PinBit);
+	high ->
+	    Reg1 = read_byte(Bus, ?GPIO_DAT_OUT(RegOffs)),
+	    write_byte(Bus, ?GPIO_DAT_OUT(RegOffs), Reg1 bor PinBit),
+	    write_byte(Bus, ?GPIO_DIR(RegOffs), Reg bor PinBit);
+	low ->
+	    Reg1 = read_byte(Bus, ?GPIO_DAT_OUT(RegOffs)),
+	    write_byte(Bus, ?GPIO_DAT_OUT(RegOffs), Reg1 band (bnot PinBit)),
+	    write_byte(Bus, ?GPIO_DIR(RegOffs), Reg bor PinBit)
+    end.
+
+gpio_get_direction(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    Reg = read_byte(Bus, ?GPIO_DIR(RegOffs)),
+    case Reg band PinBit of
+	0 -> {ok,in};
+	_ -> {ok,out}
+    end.
+
+-spec gpio_set_interrupt(Bus::i2c:i2c_bus(), Pin::pin(), Style::style()) ->
+	  ok | {error,posix()}.
+
+gpio_set_interrupt(Bus, Pin, Style) ->
+    {PinBit,RegOffs} = pin(Pin),
+    En = read_byte(Bus, ?GPIO_INT_EN(RegOffs)),
+    case Style of
+	none -> %% disable
+	    write_byte(Bus, ?GPIO_INT_EN(RegOffs), En band (bnot PinBit));
+	falling ->
+	    Lvl = read_byte(Bus, ?GPIO_INT_LVL(RegOffs)),
+	    write_byte(Bus, ?GPIO_INT_EN(RegOffs), En bor PinBit),
+	    write_byte(Bus, ?GPIO_INT_LVL(RegOffs), Lvl band (bnot PinBit));
+	rising ->
+	    Lvl = read_byte(Bus, ?GPIO_INT_LVL(RegOffs)),
+	    write_byte(Bus, ?GPIO_INT_EN(RegOffs), En bor PinBit),
+	    write_byte(Bus, ?GPIO_INT_LVL(RegOffs), Lvl bor PinBit)
+    end.
+
+
+gpio_get_interrupt(Bus, Pin) ->
+    {PinBit,RegOffs} = pin(Pin),
+    case read_byte(Bus, ?GPIO_INT_EN(RegOffs)) band PinBit of
+	0 -> none;
+	_ ->
+	    case read_byte(Bus, ?GPIO_INT_LVL(RegOffs)) band PinBit of
+		0 -> falling;
+		_ -> rising
+	    end
+    end.
+
+gpio_read_port(Bus, Pin) ->
+    {_PinBit,RegOffs} = pin(Pin),
+    read_byte(Bus, ?GPIO_DAT_STAT(RegOffs)).
+
+gpio_write_port(Bus, Pin, Data) ->
+    {_PinBit,RegOffs} = pin(Pin),
+    write_byte(Bus, ?GPIO_DAT_OUT(RegOffs), Data).
+
+%% pin to bit and port number
+-spec pin(pin()) -> {Bit::16#00..16#ff,0..3}.
+
+pin({row,I}) when is_integer(I),I >= 0, I =< 7 -> {?ROW(I),0};
+pin({col,I}) when is_integer(I),I >= 0, I =< 7 -> {?COL(I),1};
+pin({col,I}) when is_integer(I),I >= 8, I =< 9 -> {?COL(I),2};
+pin(I) when is_integer(I), I >= 0, I =< 7  -> {?ROW(I),0};
+pin(I) when is_integer(I), I >= 8, I =< 15 -> {?COL(I-8),1};
+pin(I) when is_integer(I), I >= 16, I =< 17 -> {?COL(I-16),2}.
+    
 
 read_byte(Bus, Command) ->
     {ok,Byte} = i2c:smbus_read_byte_data(Bus, Command),
