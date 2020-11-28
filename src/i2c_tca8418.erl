@@ -93,14 +93,14 @@
 -define(GPIO_PULL(I),     (?GPIO_PULL1+(I))).
 
 %% CFG flags
--define(AI,           16#80).
--define(GPI_E_CGF,    16#40).
--define(OVR_FLOW_M,   16#20).
--define(INT_CFG,      16#10).
--define(OVR_FLOW_IEN, 16#08).
--define(K_LCK_IEN,    16#04).
--define(GPI_IEN,      16#02).
--define(KE_IEN,       16#01).
+-define(AI,           16#80). %% Auto-increment for read and write operations
+-define(GPI_E_CFG,    16#40). %% GPI event mode configuration
+-define(OVR_FLOW_M,   16#20). %% Overflow mode
+-define(INT_CFG,      16#10). %% Interrupt configuration
+-define(OVR_FLOW_IEN, 16#08). %% Overflow interrupt enable
+-define(K_LCK_IEN,    16#04). %% Keypad lock interrupt enable
+-define(GPI_IEN,      16#02). %% GPI interrupt enable to host processor
+-define(KE_IEN,       16#01). %% Key events interrupt enable to host processor
 
 %% INT_STAT - interrupt status flags
 %%   CTRL-ALT-DEL
