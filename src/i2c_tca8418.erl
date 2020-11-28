@@ -14,6 +14,7 @@
 -export([read_events/1]).
 -export([deq_events/1, deq_events/2]).
 -export([read_byte/2, write_byte/3]).
+-export([set_flags/3, clr_flags/3]).
 -export([configure_3x3/1]).
 -export([configure_4x3/1]).
 -export([configure_lock/1]).
@@ -199,21 +200,19 @@ sym_to_keycode(Sym) ->
 
 -spec configure_3x3(Bus::i2c:i2c_bus()) -> ok.
 configure_3x3(Bus) ->
-    write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2),
-    write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
-    write_byte(Bus, ?KP_GPIO3, 16#00),
-    write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
+    set_flags(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2),
+    set_flags(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
+    set_flags(Bus, ?CFG, ?AI bor ?INT_CFG bor ?KE_IEN),
     ok.
 
 -spec configure_4x3(Bus::i2c:i2c_bus()) -> ok.
 configure_4x3(Bus) ->
-    write_byte(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2 bor ?ROW3),
-    write_byte(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
-    write_byte(Bus, ?KP_GPIO3, 16#00),
-    write_byte(Bus, ?CFG, (?AI bor ?INT_CFG bor ?KE_IEN)),
+    set_flags(Bus, ?KP_GPIO1, ?ROW0 bor ?ROW1 bor ?ROW2 bor ?ROW3),
+    set_flags(Bus, ?KP_GPIO2, ?COL0 bor ?COL1 bor ?COL2),
+    set_flags(Bus, ?CFG, ?AI bor ?INT_CFG bor ?KE_IEN),
     ok.
 
--spec configure_lock(Bus::i2c:i2c_bus()) -> ok.	  
+-spec configure_lock(Bus::i2c:i2c_bus()) -> ok.
 configure_lock(Bus) ->
     configure_lock(Bus, 33, 1, 2, 10).
 
@@ -433,7 +432,14 @@ pinlist(0,_I) -> [];
 pinlist(X,I) when X band 1 =/= 0 -> [I | pinlist(X bsr 1, I+1)];
 pinlist(X,I) -> pinlist(X bsr 1, I+1).
 
+set_flags(Bus, Command, Flags) ->
+    Reg = read_byte(Bus, Command),
+    write_byte(Bus, Command, Reg bor Flags).
 
+clr_flags(Bus, Command, Flags) ->
+    Reg = read_byte(Bus, Command),
+    write_byte(Bus, Command, Reg band (bnot Flags)).
+    
 read_byte(Bus, Command) ->
     {ok,Byte} = i2c:smbus_read_byte_data(Bus, Command),
     Byte.
